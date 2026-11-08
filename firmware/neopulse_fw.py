@@ -117,7 +117,7 @@ def parse_segment(text):
             cols[pos * 3:pos * 3 + 3] = bytes(c)
         pos += 1
     if pos and mask:
-        raise ValueError("mixed")
+        raise ValueError("mix")
     if pos:                     # positional: given LEDs set, the rest turn off
         mask = ALL
         if pos == 1:            # a single color means all LEDs
@@ -149,7 +149,7 @@ def parse_line(p, ln):
         p.bright = max(0, min(255, int(toks[1])))
         return
     if len(p.steps) >= 24:
-        raise ValueError("too many steps")
+        raise ValueError("steps")
     if w == "roll" or w == "roll-right" or w == "roll-left":
         d, e = 330, 0
         for t in toks[1:]:
@@ -167,7 +167,7 @@ def parse_line(p, ln):
     for part in low.split(";"):
         if part.strip():
             if len(segs) >= 2 * N:
-                raise ValueError("too many segments")
+                raise ValueError("segs")
             s = parse_segment(part)
             segs.append(s)
             total = max(total, s[2] + s[4])
@@ -532,7 +532,6 @@ if TOUCH_PINS:
 NT = len(touch)
 t_down = [0] * NT
 t_hold = [0] * NT
-both_fired = False
 
 
 def on_tap(i):
@@ -557,33 +556,19 @@ def on_hold(i, first):
 
 
 def poll_touch():
-    global both_fired
-    t = now()
-    any_down = False
     for i in range(NT):
         if touch[i].value:
-            any_down = True
             if not t_down[i]:
-                t_down[i] = t
+                t_down[i] = now()
             elif since(t_down[i]) >= 500 and since(t_hold[i]) >= 250:
-                if not both_fired:
-                    on_hold(i, t_hold[i] == 0)
-                t_hold[i] = t
+                on_hold(i, t_hold[i] == 0)
+                t_hold[i] = now()
         elif t_down[i]:
-            if t_hold[i] == 0 and not both_fired:
+            if t_hold[i] == 0:
                 on_tap(i)
-            elif t_hold[i]:
+            else:
                 save_cfg()
             t_down[i] = t_hold[i] = 0
-    if NT >= 2 and t_down[0] and t_down[1] and not both_fired and \
-            since(max(t_down[0], t_down[1])) > 1500:
-        both_fired = True
-        t_hold[0] = t_hold[1] = t
-        emit("evt both hold")
-        flash((120, 120, 120), 3)
-        save_cfg()
-    if not any_down:
-        both_fired = False
 
 
 # ---------------- main ----------------
@@ -618,9 +603,7 @@ while True:
         set_off()
         gc.collect()
         emit("evt error memory")
-        print("MemoryError, recovered")
     except Exception as ex:
         gc.collect()
         emit("evt error %s" % ex)
-        print("loop error:", repr(ex))
         time.sleep(0.1)

@@ -77,7 +77,6 @@ evt prog ok file|serial|init        a program was accepted (and from which sourc
 evt prog err <source> <token>       parse error
 evt touch1 tap | evt touch2 tap     short tap (< 500 ms)
 evt touch1 hold | evt touch2 hold   first fired after 500 ms
-evt both hold                       both pads held 1.5 s (device flashes white, saves config)
 evt bright <n>                      brightness changed by a pad hold
 evt mute <0|1>
 evt error memory | evt error <text>   the main loop caught an exception and recovered (program dropped)
@@ -103,7 +102,6 @@ each agent session one pixel, assigned in that order when the session starts.
 | pad 2 tap | mute toggle | cycle mode: lane → unified → off |
 | pad 1 hold | brightness down (repeats); pixels show white at the live level while held | same (always local) |
 | pad 2 hold | brightness up (repeats); pixels show white at the live level while held | same (always local) |
-| both held 1.5 s | identify flash + save config | same |
 
 ## Porting to other hardware
 
