@@ -16,21 +16,23 @@ def test_profiles_load():
 
 def test_lane_render_is_valid_and_fits():
     prof = load_profile("default")
-    lanes = [Lane(State.WAITING, "codex"), Lane(State.WORKING, "claude"), Lane(State.DONE, "claude")]
+    slots = [Lane(State.WAITING, "codex"), Lane(State.WORKING, "claude"), Lane(State.DONE, "claude"), None]
     for leds in (2, 4, 8, 12):
-        text = render_lanes(aggregate([l.state for l in lanes]), lanes, leds, prof)
+        text = render_lanes((slots + [None] * leds)[:leds], leds, prof)
         assert P.validate(text, leds) is None, text
         assert len(text.encode()) <= P.MAX_BYTES
 
 
-def test_lane_pixel_zero_is_aggregate():
+def test_each_pixel_is_one_session():
     prof = load_profile("default")
-    lanes = [Lane(State.WAITING, "codex"), Lane(State.WORKING, "claude")]
-    prog = P.parse(render_lanes(State.WAITING, lanes, 4, prof), 4)
-    # keyframe 1 is a waiting peak: pixel 0 and pixel 1 are amber, pixel 3 is off
-    k1 = prog.steps[1].colors
-    assert k1[0] == prof.color(State.WAITING) and k1[1] == prof.color(State.WAITING)
-    assert k1[3] == (0, 0, 0)
+    slots = [Lane(State.WORKING, "claude"), Lane(State.WAITING, "codex"), None, Lane(State.DONE, "claude")]
+    prog = P.parse(render_lanes(slots, 4, prof), 4)
+    k1 = prog.steps[1].colors            # keyframe 1: waiting is at its peak
+    assert k1[1] == prof.color(State.WAITING)          # pixel 1 = codex needs you
+    assert k1[2] == (0, 0, 0)                           # pixel 2 = nobody
+    assert k1[3] == prof.color(State.DONE)              # pixel 3 = done, solid
+    assert k1[0] != (0, 0, 0) and k1[0][1] > 0          # pixel 0 = claude working (cyan, breathing)
+    assert all(st.colors[2] == (0, 0, 0) for st in prog.steps)
 
 
 def test_unified_and_off():
@@ -38,4 +40,4 @@ def test_unified_and_off():
     for st in State:
         assert P.validate(render_unified(st, 4, prof), 4) is None
     assert render("off", State.WORKING, [], 4, prof) == "off"
-    assert render("lane", None, [], 4, prof) == "off"
+    assert render("lane", None, [None] * 4, 4, prof) == "off"

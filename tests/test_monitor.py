@@ -67,3 +67,30 @@ def test_refresh_null_transport():
     tr = NullTransport(leds=4, out=open("/dev/null", "w"))
     prog = monitor.refresh(transport=tr, force=True)
     assert prog == tr.last and prog is not None
+
+
+def test_sticky_lanes_and_overflow():
+    now = time.time()
+    recs = [ev("claude", "UserPromptSubmit", "a", t=now - 50), ev("codex", "UserPromptSubmit", "b", t=now - 40),
+            ev("claude", "UserPromptSubmit", "c", t=now - 30), ev("codex", "UserPromptSubmit", "d", t=now - 20),
+            ev("claude", "UserPromptSubmit", "e", t=now - 10)]
+    s = monitor.build_sessions(recs, now)
+    assert [s[k].lane for k in ("claude:a", "codex:b", "claude:c", "codex:d")] == [0, 1, 2, 3]
+    assert s["claude:e"].lane is None                      # fifth session: no pixel
+    # b becomes urgent: it stays on pixel 1 (no reshuffling)
+    recs.append(ev("codex", "PermissionRequest", "b", t=now - 5))
+    s = monitor.build_sessions(recs, now)
+    assert s["codex:b"].lane == 1 and s["codex:b"].state == State.WAITING
+    # a ends: its pixel 0 goes to the waiting overflow session e
+    recs.append(ev("claude", "SessionEnd", "a", t=now - 4))
+    recs.append(ev("claude", "PreToolUse", "e", t=now - 3))
+    s = monitor.build_sessions(recs, now)
+    assert "claude:a" not in s and s["claude:e"].lane == 0
+
+
+def test_expired_pixel_is_reused_by_later_session():
+    now = time.time()
+    recs = [ev("claude", "Stop", "old", t=now - 3 * 3600),             # done long ago -> expired
+            ev("codex", "UserPromptSubmit", "new", t=now - 10)]
+    s = monitor.build_sessions(recs, now)
+    assert list(s) == ["codex:new"] and s["codex:new"].lane == 0

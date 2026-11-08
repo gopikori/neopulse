@@ -112,26 +112,20 @@ class Lane:
     provider: str | None = None
 
 
-def render_lanes(agg: State | None, lanes: list[Lane], leds: int, profile: Profile,
-                 presence: bool = False) -> str:
-    """Pixel 0 = aggregate, pixels 1.. = lanes. Returns a program text."""
-    if agg is None and not presence:
+def render_lanes(slots: list[Lane | None], leds: int, profile: Profile, presence: bool = False) -> str:
+    """One pixel per agent session. slots[i] is the session owning pixel i, or None."""
+    if not any(slots) and not presence:
         return P.OFF
-    slots: list[tuple[State, RGB]] = []
-    agg_provider = lanes[0].provider if lanes else None
+    cells: list[tuple[State, RGB]] = []
     for i in range(leds):
-        if i == 0:
-            st = agg or State.IDLE
-            col = profile.color(st, agg_provider) if st != State.IDLE else (profile.presence or (0, 0, 0))
-        elif i - 1 < len(lanes):
-            st = lanes[i - 1].state
-            col = profile.color(st, lanes[i - 1].provider)
+        ln = slots[i] if i < len(slots) else None
+        if ln is None:
+            cells.append((State.IDLE, profile.presence or (0, 0, 0)))
         else:
-            st, col = State.IDLE, (profile.presence or (0, 0, 0))
-        slots.append((st, col))
+            cells.append((ln.state, profile.color(ln.state, ln.provider)))
     frames: list[list[RGB]] = []
     for k in range(KEYFRAMES):
-        frames.append([scale(col, _intensity(st, k, presence)) for st, col in slots])
+        frames.append([scale(col, _intensity(st, k, presence)) for st, col in cells])
     text = P.frames(frames, STEP_MS)
     if len(text.encode()) > P.MAX_BYTES:  # many pixels: short hex, then fewer keyframes
         text = _compact(frames, STEP_MS)
@@ -165,10 +159,10 @@ def render_unified(agg: State | None, leds: int, profile: Profile, provider: str
     return P.solid(col, 400)  # DONE
 
 
-def render(mode: str, agg: State | None, lanes: list[Lane], leds: int, profile: Profile,
-           presence: bool = False) -> str:
+def render(mode: str, agg: State | None, slots: list[Lane | None], leds: int, profile: Profile,
+           presence: bool = False, provider: str | None = None) -> str:
     if mode == "off":
         return P.OFF
     if mode == "unified":
-        return render_unified(agg, leds, profile, lanes[0].provider if lanes else None, presence)
-    return render_lanes(agg, lanes, leds, profile, presence)
+        return render_unified(agg, leds, profile, provider, presence)
+    return render_lanes(slots, leds, profile, presence)

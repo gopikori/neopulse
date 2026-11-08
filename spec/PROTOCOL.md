@@ -84,8 +84,8 @@ Component side up, USB plug to the left. The NeoPixel chain runs clockwise from 
                                 (3) (2)  [1]   pad 1, bottom edge
 ```
 
-Index 0 is top-left, 1 top-right, 2 bottom-right, 3 bottom-left. Lane layout uses 0 as the
-aggregate and 1, 2, 3 as sessions in clockwise order.
+Index 0 is top-left, 1 top-right, 2 bottom-right, 3 bottom-left. The host's lane layout gives
+each agent session one pixel, assigned in that order when the session starts.
 
 ## Touch gestures (Neo Trinkey default profile)
 

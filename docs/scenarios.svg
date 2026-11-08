@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <style>
+    @keyframes breathe { 0%,100% { opacity:.2 } 50% { opacity:1 } }
+    @keyframes dpulse  { 0%,37.5%,100% { opacity:.15 } 12.5%,62.5% { opacity:1 } 25%,75% { opacity:.4 } 50% { opacity:.15 } }
+    @keyframes blink   { 0%,25% { opacity:1 } 12.5%,37.5%,100% { opacity:.15 } }
+    .w { animation: breathe 2s ease-in-out infinite } .n { animation: dpulse 2s linear infinite } .b { animation: blink 2s steps(1) infinite }
+    text { fill:#e6e6e6 } .dim { fill:#9aa3ad } .num { fill:#111; font-weight:700; font-size:12px }
+  </style>
+  <rect width="760" height="300" fill="#0f1115"/>
+  <text x="20" y="28" font-size="16" font-weight="600">Worked examples (board held USB-left, pads on the right)</text>
+
+  <!-- scene template: board 150x90 at (x,y); pixels at (+45,+28) (+105,+28) (+105,+62) (+45,+62) -->
+  <g transform="translate(20,50)">
+    <rect width="150" height="90" rx="8" fill="#4a2a7a"/><rect x="128" y="10" width="14" height="30" rx="3" fill="#d8b24a"/><rect x="128" y="50" width="14" height="30" rx="3" fill="#d8b24a"/>
+    <circle cx="45" cy="28" r="13" fill="#00e5ff" class="w"/><text x="45" y="32" text-anchor="middle" class="num">0</text>
+    <circle cx="105" cy="28" r="13" fill="#1a1326" stroke="#2a1f3d"/><circle cx="105" cy="62" r="13" fill="#1a1326" stroke="#2a1f3d"/><circle cx="45" cy="62" r="13" fill="#1a1326" stroke="#2a1f3d"/>
+    <text x="0" y="112" font-size="13" font-weight="600">One Claude session, working</text>
+    <text x="0" y="130" font-size="12" class="dim">Pixel 0 breathes cyan. Others off.</text>
+  </g>
+  <g transform="translate(210,50)">
+    <rect width="150" height="90" rx="8" fill="#4a2a7a"/><rect x="128" y="10" width="14" height="30" rx="3" fill="#d8b24a"/><rect x="128" y="50" width="14" height="30" rx="3" fill="#d8b24a"/>
+    <circle cx="45" cy="28" r="13" fill="#00e5ff" class="w"/><text x="45" y="32" text-anchor="middle" class="num">0</text>
+    <circle cx="105" cy="28" r="13" fill="#ffb000" class="n"/><text x="105" y="32" text-anchor="middle" class="num">1</text>
+    <circle cx="105" cy="62" r="13" fill="#1a1326" stroke="#2a1f3d"/><circle cx="45" cy="62" r="13" fill="#1a1326" stroke="#2a1f3d"/>
+    <text x="0" y="112" font-size="13" font-weight="600">Then a Codex session needs you</text>
+    <text x="0" y="130" font-size="12" class="dim">It took pixel 1 when it started. Amber double pulse.</text>
+  </g>
+  <g transform="translate(400,50)">
+    <rect width="150" height="90" rx="8" fill="#4a2a7a"/><rect x="128" y="10" width="14" height="30" rx="3" fill="#d8b24a"/><rect x="128" y="50" width="14" height="30" rx="3" fill="#d8b24a"/>
+    <circle cx="45" cy="28" r="13" fill="#30d158"/><text x="45" y="32" text-anchor="middle" class="num">0</text>
+    <circle cx="105" cy="28" r="13" fill="#7c5cff" class="w"/><text x="105" y="32" text-anchor="middle" class="num">1</text>
+    <circle cx="105" cy="62" r="13" fill="#ff2a2a" class="b"/><text x="105" y="66" text-anchor="middle" class="num">2</text>
+    <circle cx="45" cy="62" r="13" fill="#1a1326" stroke="#2a1f3d"/>
+    <text x="0" y="112" font-size="13" font-weight="600">Three sessions</text>
+    <text x="0" y="130" font-size="12" class="dim">0 Claude done, 1 Codex working, 2 Claude blocked.</text>
+  </g>
+  <g transform="translate(590,50)">
+    <rect width="150" height="90" rx="8" fill="#4a2a7a"/><rect x="128" y="10" width="14" height="30" rx="3" fill="#d8b24a"/><rect x="128" y="50" width="14" height="30" rx="3" fill="#d8b24a"/>
+    <circle cx="45" cy="28" r="13" fill="#ffb000" class="n"/><circle cx="105" cy="28" r="13" fill="#ffb000" class="n"/>
+    <circle cx="105" cy="62" r="13" fill="#ffb000" class="n"/><circle cx="45" cy="62" r="13" fill="#ffb000" class="n"/>
+    <text x="0" y="112" font-size="13" font-weight="600">Unified layout (tap pad 2)</text>
+    <text x="0" y="130" font-size="12" class="dim">All four show the single most urgent state.</text>
+  </g>
+
+  <g transform="translate(20,215)" font-size="12">
+    <text font-size="13" font-weight="600">Rules</text>
+    <text y="20" class="dim">1. A session takes the lowest free pixel when it starts and keeps it until it ends, or 20 min after done / 5 min idle.</text>
+    <text y="38" class="dim">2. Color = state (cyan/violet working by provider, amber needs you, red blocked, green done). Motion = state too, for color-blind reading.</text>
+    <text y="56" class="dim">3. A fifth session waits for a free pixel. `neopulse status` lists which pixel each session owns. Pad 1 tap clears done and needs-you.</text>
+  </g>
+</svg>

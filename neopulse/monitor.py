@@ -134,20 +134,49 @@ class Session:
     updated: float
     cwd: str = ""
     label: str = ""
+    lane: int | None = None   # pixel index this session owns; None = no free pixel (overflow)
 
     def age(self, now: float) -> float:
         return now - self.updated
 
 
-def build_sessions(records: list[dict], now: float | None = None) -> dict[str, Session]:
+def _expired(s: Session, now: float) -> bool:
+    a = s.age(now)
+    return ((s.state == State.DONE and a > DONE_VISIBLE) or (s.state == State.IDLE and a > IDLE_VISIBLE)
+            or (s.state == State.WORKING and a > WORKING_STALE)
+            or (s.state in (State.WAITING, State.BLOCKED) and a > WAITING_STALE))
+
+
+def build_sessions(records: list[dict], now: float | None = None, lanes: int = 4) -> dict[str, Session]:
+    """Replay the event log. Each session takes the lowest free pixel when it first appears and
+    keeps it until it ends or expires. Expiry is applied as replay time advances, so a pixel freed
+    an hour ago is free for a session that started later."""
     now = now or time.time()
     sessions: dict[str, Session] = {}
+
+    def free_lane() -> int | None:
+        used = {x.lane for x in sessions.values() if x.lane is not None}
+        for i in range(lanes):
+            if i not in used:
+                return i
+        return None
+
+    def sweep(t: float) -> None:
+        for k, x in list(sessions.items()):
+            if _expired(x, t):
+                del sessions[k]
+        # promote overflow sessions into freed pixels, oldest first
+        for x in sorted((x for x in sessions.values() if x.lane is None), key=lambda x: x.updated):
+            x.lane = free_lane()
+
     for r in records:
+        t = float(r.get("t", 0))
+        sweep(t)
         ev = r.get("event", "")
         if ev == "Ack":  # touch pad / CLI acknowledgement: clear done + waiting
-            for s in list(sessions.values()):
-                if s.state in (State.DONE, State.WAITING):
-                    s.state, s.updated = State.IDLE, r["t"]
+            for x in sessions.values():
+                if x.state in (State.DONE, State.WAITING):
+                    x.state, x.updated = State.IDLE, t
             continue
         if ev == "Clear":
             sessions.clear()
@@ -159,41 +188,40 @@ def build_sessions(records: list[dict], now: float | None = None) -> dict[str, S
             continue
         if st is None:
             if key in sessions:
-                sessions[key].updated = r["t"]
+                sessions[key].updated = t
             continue
-        s = sessions.get(key)
-        if s is None:
-            s = sessions[key] = Session(key, r.get("provider", "?"), st, r["t"], r.get("cwd", ""))
-        s.state, s.updated = st, r["t"]
+        x = sessions.get(key)
+        if x is None:
+            x = sessions[key] = Session(key, r.get("provider", "?"), st, t, r.get("cwd", ""), lane=free_lane())
+        x.state, x.updated = st, t
         if r.get("cwd"):
-            s.cwd = r["cwd"]
-        s.label = Path(s.cwd).name if s.cwd else r.get("session", "")[-8:]
-    # expiry
-    for key, s in list(sessions.items()):
-        a = s.age(now)
-        if (s.state == State.DONE and a > DONE_VISIBLE) or (s.state == State.IDLE and a > IDLE_VISIBLE) \
-                or (s.state == State.WORKING and a > WORKING_STALE) or (s.state in (State.WAITING, State.BLOCKED) and a > WAITING_STALE):
-            del sessions[key]
+            x.cwd = r["cwd"]
+        x.label = Path(x.cwd).name if x.cwd else r.get("session", "")[-8:]
+    sweep(now)
     return sessions
 
 
-def current_sessions(now: float | None = None) -> dict[str, Session]:
-    return build_sessions(read_tail(), now)
+def current_sessions(now: float | None = None, lanes: int = 4) -> dict[str, Session]:
+    return build_sessions(read_tail(), now, lanes)
 
 
-def lanes_for(sessions: dict[str, Session], max_lanes: int | None = None) -> list[Lane]:
-    ordered = sorted(sessions.values(), key=lambda s: (rank(s.state), -s.updated))
-    if max_lanes is not None:
-        ordered = ordered[:max_lanes]
-    return [Lane(s.state, s.provider) for s in ordered]
+def slots_for(sessions: dict[str, Session], leds: int) -> list[Lane | None]:
+    """One entry per pixel: the session that owns it, or None."""
+    out: list[Lane | None] = [None] * leds
+    for x in sessions.values():
+        if x.lane is not None and x.lane < leds:
+            out[x.lane] = Lane(x.state, x.provider)
+    return out
 
 
 def compute_program(sessions: dict[str, Session], leds: int, cfg: dict | None = None) -> str:
     cfg = cfg or load_config()
     profile = load_profile(cfg.get("profile", "default"))
-    lanes = lanes_for(sessions, cfg.get("max_lanes"))
-    agg = aggregate([l.state for l in lanes])
-    return render(cfg.get("mode", "lane"), agg, lanes, leds, profile, bool(cfg.get("presence")))
+    slots = slots_for(sessions, leds)
+    agg = aggregate([x.state for x in sessions.values()])
+    top = min(sessions.values(), key=lambda x: (rank(x.state), -x.updated), default=None)
+    return render(cfg.get("mode", "lane"), agg, slots, leds, profile, bool(cfg.get("presence")),
+                  provider=top.provider if top else None)
 
 
 # ---------------- refresh (write to device) ----------------
@@ -227,7 +255,7 @@ def refresh(transport=None, force: bool = False, cfg: dict | None = None) -> str
                 tr = open_transport(cfg.get("transport", "auto"), cfg.get("device"), cfg.get("port"))
             info = tr.info()
             leds = info.leds if info else 4
-            prog = compute_program(current_sessions(), leds, cfg)
+            prog = compute_program(current_sessions(lanes=leds), leds, cfg)
             try:
                 prev = _LAST.read_text() if not force else None
                 fresh = (time.time() - _LAST.stat().st_mtime) < 60 if not force else False

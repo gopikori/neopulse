@@ -46,8 +46,8 @@
     <text x="640" y="218" fill="#9aa" font-size="12">hold: dimmer</text>
   </g>
   <g fill="#e6e6e6" font-size="13">
-    <text x="60" y="268" font-weight="600">Lane layout (default)</text>
-    <text x="60" y="290" fill="#cfd3d8">0  aggregate: the most urgent state across every agent session</text>
-    <text x="60" y="310" fill="#cfd3d8">1, 2, 3  one agent session each, most urgent first, clockwise</text>
+    <text x="60" y="268" font-weight="600">Each pixel is one agent session</text>
+    <text x="60" y="290" fill="#cfd3d8">A session takes the lowest free pixel when it starts (0, then 1, 2, 3 clockwise) and keeps it until it ends.</text>
+    <text x="60" y="310" fill="#cfd3d8">The color and motion of that pixel is that agent's state. Nothing is grouped or summarized.</text>
   </g>
 </svg>

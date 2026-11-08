@@ -15,7 +15,7 @@
     .dim { fill:#9aa }
   </style>
   <rect width="760" height="420" fill="#0f1115"/>
-  <text x="20" y="30" font-size="16" font-weight="600">What the light means</text>
+  <text x="20" y="30" font-size="16" font-weight="600">What one pixel means (each pixel is one agent)</text>
 
   <!-- working -->
   <circle cx="60" cy="80" r="19" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="60" cy="80" r="16" fill="#00e5ff" class="breathe"/>

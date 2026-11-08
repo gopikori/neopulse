@@ -48,7 +48,7 @@
         <div><span class="dot" style="background:#30d158"></span>done</div>
         <div><span class="dot" style="background:#222; border:1px solid #444"></span>idle / off</div>
       </div>
-      <p><small>Lane layout: pixel 0 (top-left) is the aggregate, pixels 1, 2, 3 are one session each, most urgent first, clockwise. Pad 1: tap = acknowledge, hold = dimmer. Pad 2: tap = cycle layout, hold = brighter.</small></p>
+      <p><small>Lane layout: each pixel is one agent session, taken in order 0, 1, 2, 3 (clockwise) when the session starts and kept until it ends. Pad 1: tap = acknowledge, hold = dimmer. Pad 2: tap = cycle layout, hold = brighter.</small></p>
     </div>
   </div>
   <div class="panel">
@@ -89,13 +89,9 @@ function lanes() { return [...sessions].sort((a,b)=>PRIORITY.indexOf(a.state)-PR
 function aggregate(ls) { return ls.length ? ls[0].state : null; }
 
 function laneProgram(ls) {
-  const agg = aggregate(ls); if (!agg) return 'off';
+  if (!sessions.length) return 'off';
   const slots = [];
-  for (let i=0;i<4;i++) {
-    if (i===0) slots.push([agg, rgb(color(agg, ls[0].provider))]);
-    else if (i-1 < ls.length) slots.push([ls[i-1].state, rgb(color(ls[i-1].state, ls[i-1].provider))]);
-    else slots.push(['idle',[0,0,0]]);
-  }
+  for (let i=0;i<4;i++) slots.push(i < sessions.length ? [sessions[i].state, rgb(color(sessions[i].state, sessions[i].provider))] : ['idle',[0,0,0]]);
   const lines = [];
   for (let k=0;k<8;k++) lines.push(slots.map(([st,c]) => hex(scale(c, intensity(st,k)))).join(' ') + ' 250ms linear');
   lines.push('repeat'); return lines.join('\n');
@@ -145,10 +141,10 @@ function frame(now) {
 }
 function render() { const ls = lanes(); load(mode==='off' ? 'off' : mode==='unified' ? unifiedProgram(ls) : laneProgram(ls)); drawSessions(); }
 function setMode(m) { mode=m; for (const x of ['lane','unified','off']) document.getElementById('m-'+x).className = x===m?'on':''; render(); }
-function addSession() { if (sessions.length<3) sessions.push({provider:'codex', state:'waiting'}); render(); }
+function addSession() { if (sessions.length<4) sessions.push({provider:'codex', state:'waiting'}); render(); }
 function ack() { for (const s of sessions) if (s.state==='done'||s.state==='waiting') s.state='idle'; render(); }
 function drawSessions() {
-  document.getElementById('sessions').innerHTML = sessions.map((s,i)=>`<div class="row"><label>session ${i+1}</label>
+  document.getElementById('sessions').innerHTML = sessions.map((s,i)=>`<div class="row"><label>pixel ${i}</label>
     <select onchange="sessions[${i}].provider=this.value;render()">${['claude','codex'].map(p=>`<option ${s.provider===p?'selected':''}>${p}</option>`).join('')}</select>
     <select onchange="sessions[${i}].state=this.value;render()">${['working','waiting','blocked','done','idle'].map(st=>`<option value="${st}" ${s.state===st?'selected':''}>${st==='waiting'?'needs you':st}</option>`).join('')}</select>
     <button onclick="sessions.splice(${i},1);render()">remove</button></div>`).join('');

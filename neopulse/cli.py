@@ -138,24 +138,25 @@ def cmd_events(args):
 
 def cmd_demo(args):
     prof = load_profile(monitor.load_config().get("profile", "default"))
+    from .states import Lane, aggregate, render
     with transport_from(args) as tr:
         info = tr.info()
         leds = info.leds if info else 4
-        from .states import Lane, render
-        seq = [
-            ("working (lane)", [Lane(State.WORKING, "claude")]),
-            ("two agents: claude working + codex waiting", [Lane(State.WAITING, "codex"), Lane(State.WORKING, "claude")]),
-            ("blocked", [Lane(State.BLOCKED, "claude")]),
-            ("done", [Lane(State.DONE, "claude")]),
+        W, Wt, Bk, D = State.WORKING, State.WAITING, State.BLOCKED, State.DONE
+        scenes = [
+            ("1 Claude session working: pixel 0 breathes cyan", [Lane(W, "claude"), None, None, None]),
+            ("a Codex session starts: pixel 1 breathes violet", [Lane(W, "claude"), Lane(W, "codex"), None, None]),
+            ("Codex needs you: pixel 1 double-pulses amber", [Lane(W, "claude"), Lane(Wt, "codex"), None, None]),
+            ("Claude done, Codex blocked: green + red blink", [Lane(D, "claude"), Lane(Bk, "codex"), None, None]),
+            ("four sessions, one per pixel", [Lane(W, "claude"), Lane(D, "codex"), Lane(Wt, "claude"), Lane(W, "codex")]),
         ]
-        for label, lanes in seq:
-            from .states import aggregate
+        for label, slots in scenes:
             print(label)
-            tr.write(render("lane", aggregate([l.state for l in lanes]), lanes, leds, prof))
+            tr.write(render("lane", None, slots[:leds], leds, prof))
             time.sleep(args.seconds)
-        for label, st in (("unified working", State.WORKING), ("unified waiting", State.WAITING), ("unified done", State.DONE)):
+        for label, st in (("unified: working chase", W), ("unified: needs you", Wt), ("unified: done", D)):
             print(label)
-            tr.write(render("unified", st, [Lane(st, "claude")], leds, prof))
+            tr.write(render("unified", st, [], leds, prof, provider="claude"))
             time.sleep(args.seconds)
         tr.off()
     print("demo done")
@@ -199,11 +200,13 @@ def cmd_status(args):
             print(f"hooks    {p:7} {'installed' if s['installed'] else 'not installed'} ({len(s['events'])} events)")
         except Exception as e:
             print(f"hooks    {p:7} error: {e}")
-    sessions = monitor.current_sessions()
-    print(f"sessions {len(sessions)}")
+    leds = info.leds if info else 4
+    sessions = monitor.current_sessions(lanes=leds)
+    print(f"sessions {len(sessions)}   (one pixel per session; pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left)")
     now = time.time()
-    for s in sorted(sessions.values(), key=lambda s: s.updated, reverse=True):
-        print(f"  {s.state.value:8} {s.provider:7} {s.label:24} {int(s.age(now))}s ago")
+    for s in sorted(sessions.values(), key=lambda s: (s.lane is None, s.lane or 0)):
+        px = f"pixel {s.lane}" if s.lane is not None else "no pixel"
+        print(f"  {px:9} {s.state.value:8} {s.provider:7} {s.label:24} {int(s.age(now))}s ago")
 
 
 def cmd_mode(args):
@@ -598,7 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
     p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
     p = add("mode", "show or set the layout",
-            "lane: pixel 0 = aggregate, pixels 1.. = one agent each.  unified: all pixels show the aggregate.\n"
+            "lane: one pixel per agent session (default).  unified: all pixels show the most urgent state.\n"
             "off: dark. Tapping pad 2 cycles these.", ["neopulse mode", "neopulse mode unified"])
     p.add_argument("mode", nargs="?", choices=["lane", "unified", "off"]); p.set_defaults(fn=cmd_mode)
     p = add("presence", "dim glow when nothing is happening", examples=["neopulse presence on"])
@@ -612,7 +615,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_demo)
 
     p = add("state", "set an agent state by hand (for scripts, CI, cron)",
-            "Feeds the same state machine the agent hooks use. Each --session is one lane.",
+            "Feeds the same state machine the agent hooks use. Each --session owns one pixel.",
             ["neopulse state working --session build", "neopulse state done --session build",
              "neopulse state waiting --session deploy --provider codex"])
     p.add_argument("state", choices=[s.value for s in State]); p.add_argument("--session", default="manual", metavar="NAME")

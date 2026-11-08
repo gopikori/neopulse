@@ -5,19 +5,36 @@ An open-source USB status light for AI coding agents, built on the $7 **Adafruit
 [SidePulse](https://sidepulse.io) and compatible with its `LEDS.LED` program language.
 
 Know whether Claude Code or Codex is **working**, **needs you**, is **blocked**, or **done**
-without looking at the terminal. Four pixels show up to three agents at once.
+without looking at the terminal.
 
-## At a glance
+## How to read it
 
-![Board layout: pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left; pad 2 top edge, pad 1 bottom edge](docs/board-layout.svg)
+**Each pixel is one agent session.** When a Claude Code or Codex session starts, it takes the
+lowest free pixel (0, then 1, 2, 3, clockwise) and keeps it until the session ends. The color
+and motion of that pixel is that agent's state. Nothing is grouped and nothing is summarized.
+Four sessions fill the board; a fifth waits for a free pixel.
 
-![What the light means: working breathes cyan or violet, needs-you double-pulses amber, blocked blinks red, done is solid green](docs/states.svg)
+![Worked examples: one agent working, a second agent needing you, three agents, unified mode](docs/scenarios.svg)
+
+![What one pixel means: working breathes cyan or violet, needs-you double-pulses amber, blocked blinks red, done is solid green](docs/states.svg)
+
+Prefer one big indicator? Tap pad 2 (or `neopulse mode unified`) and all four pixels show the
+single most urgent state, SidePulse style. Tap again for off, again for back to one-per-agent.
+
+`neopulse status` prints which pixel each session owns:
+
+```
+sessions 2   (one pixel per session; pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left)
+  pixel 0   working  claude  my-api        3s ago
+  pixel 1   waiting  codex   frontend     41s ago
+```
 
 Try it without hardware: open [docs/simulator.html](docs/simulator.html) in a browser
 (or the [live copy](https://htmlpreview.github.io/?https://github.com/gopikori/neopulse/blob/main/docs/simulator.html)).
-Pick what each agent is doing and it shows the board plus the exact program sent to the device.
 
 ### Pixels and pads
+
+![Board layout: pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left; pad 2 top edge, pad 1 bottom edge](docs/board-layout.svg)
 
 Hold the board component side up with the USB plug to the left. Numbers are the pixel indexes
 used everywhere in NeoPulse (programs, `neopulse write 0:#ff0000`, the simulator). Pads carry
@@ -33,24 +50,17 @@ the numbers printed on the board.
             └──────────────────────────────────────┘
 ```
 
-| Pixel | Lane layout (default) | Unified layout |
-|---|---|---|
-| 0 top-left | aggregate: the most urgent state across all sessions | aggregate |
-| 1 top-right | most urgent session | aggregate |
-| 2 bottom-right | second session | aggregate |
-| 3 bottom-left | third session | aggregate |
-
 ### States
 
-| State | Lane pattern | Unified pattern | Color |
-|---|---|---|---|
-| working / tool running | slow breathe | chase | cyan `#00e5ff` Claude, violet `#7c5cff` Codex |
-| needs you | fast double pulse | fast pulse | amber `#ffb000` |
-| blocked / error | double blink | double blink | red `#ff2a2a` |
-| done | solid, fades after 20 min | solid | green `#30d158` |
-| idle | off (or dim glow with `presence on`) | off | – |
+| State | Pattern | Color |
+|---|---|---|
+| working / tool running | slow breathe (chase in unified) | cyan `#00e5ff` Claude, violet `#7c5cff` Codex |
+| needs you | fast double pulse | amber `#ffb000` |
+| blocked / error | double blink | red `#ff2a2a` |
+| done | solid, fades after 20 min or when you tap pad 1 | green `#30d158` |
+| idle | off (or a dim glow with `neopulse presence on`) | – |
 
-Priority when several sessions disagree: blocked > needs you > working > done > idle.
+Unified mode picks the most urgent state: blocked > needs you > working > done > idle.
 Colors come from a JSON profile (`neopulse profile list`); `ember` and `mono` are included.
 
 ## Install
