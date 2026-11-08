@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
   <style>
-    @keyframes breathe { 0%,100% { opacity:.12 } 50% { opacity:1 } }
-    @keyframes dpulse  { 0%,37.5%,100% { opacity:0 } 12.5%,62.5% { opacity:1 } 25%,75% { opacity:.25 } 50% { opacity:0 } }
-    @keyframes blink   { 0%,25% { opacity:1 } 12.5%,37.5%,100% { opacity:0 } }
-    @keyframes chase   { 0% { opacity:1 } 25% { opacity:.3 } 50% { opacity:.09 } 75% { opacity:0 } 100% { opacity:1 } }
+    @keyframes breathe { 0%,100% { opacity:.2 } 50% { opacity:1 } }
+    @keyframes dpulse  { 0%,37.5%,100% { opacity:.15 } 12.5%,62.5% { opacity:1 } 25%,75% { opacity:.4 } 50% { opacity:.15 } }
+    @keyframes blink   { 0%,25% { opacity:1 } 12.5%,37.5%,100% { opacity:.15 } }
+    @keyframes chase   { 0% { opacity:1 } 25% { opacity:.4 } 50% { opacity:.2 } 75% { opacity:.15 } 100% { opacity:1 } }
     .breathe { animation: breathe 2s ease-in-out infinite }
     .dpulse  { animation: dpulse 2s linear infinite }
     .blink   { animation: blink 2s steps(1) infinite }
@@ -18,18 +18,18 @@
   <text x="20" y="30" font-size="16" font-weight="600">What the light means</text>
 
   <!-- working -->
-  <circle cx="60" cy="80" r="16" fill="#00e5ff" class="breathe"/>
-  <circle cx="100" cy="80" r="16" fill="#7c5cff" class="breathe"/>
+  <circle cx="60" cy="80" r="19" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="60" cy="80" r="16" fill="#00e5ff" class="breathe"/>
+  <circle cx="100" cy="80" r="19" fill="none" stroke="#7c5cff" stroke-width="2" opacity=".7"/><circle cx="100" cy="80" r="16" fill="#7c5cff" class="breathe"/>
   <text x="140" y="76" font-size="15" font-weight="600">working</text>
   <text x="140" y="94" font-size="12" class="dim">slow breathe. cyan = Claude Code, violet = Codex. Thinking or running a tool.</text>
 
   <!-- waiting -->
-  <circle cx="60" cy="140" r="16" fill="#ffb000" class="dpulse"/>
+  <circle cx="60" cy="140" r="19" fill="none" stroke="#ffb000" stroke-width="2" opacity=".7"/><circle cx="60" cy="140" r="16" fill="#ffb000" class="dpulse"/>
   <text x="140" y="136" font-size="15" font-weight="600">needs you</text>
   <text x="140" y="154" font-size="12" class="dim">fast double pulse, amber. Permission prompt or the agent asked a question.</text>
 
   <!-- blocked -->
-  <circle cx="60" cy="200" r="16" fill="#ff2a2a" class="blink"/>
+  <circle cx="60" cy="200" r="19" fill="none" stroke="#ff2a2a" stroke-width="2" opacity=".7"/><circle cx="60" cy="200" r="16" fill="#ff2a2a" class="blink"/>
   <text x="140" y="196" font-size="15" font-weight="600">blocked</text>
   <text x="140" y="214" font-size="12" class="dim">double blink, red. A tool failed or a stop hook errored.</text>
 
@@ -45,8 +45,8 @@
 
   <!-- unified working chase -->
   <g transform="translate(0,370)">
-    <circle cx="60" cy="10" r="12" fill="#00e5ff" class="c0"/><circle cx="90" cy="10" r="12" fill="#00e5ff" class="c1"/>
-    <circle cx="120" cy="10" r="12" fill="#00e5ff" class="c2"/><circle cx="150" cy="10" r="12" fill="#00e5ff" class="c3"/>
+    <circle cx="60" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="60" cy="10" r="12" fill="#00e5ff" class="c0"/><circle cx="90" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="90" cy="10" r="12" fill="#00e5ff" class="c1"/>
+    <circle cx="120" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="120" cy="10" r="12" fill="#00e5ff" class="c2"/><circle cx="150" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="150" cy="10" r="12" fill="#00e5ff" class="c3"/>
     <text x="180" y="6" font-size="15" font-weight="600">unified layout</text>
     <text x="180" y="24" font-size="12" class="dim">all four pixels show the aggregate; working becomes a chase. Tap pad 2 to switch.</text>
   </g>
