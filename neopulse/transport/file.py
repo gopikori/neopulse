@@ -8,6 +8,7 @@ from ..device import DeviceInfo, read_status
 
 PROGRAM_FILE = "LEDS.LED"
 INIT_FILE = "INIT.LED"
+CMD_FILE = "CMD.TXT"
 
 
 class FileTransport(Transport):
@@ -43,6 +44,13 @@ class FileTransport(Transport):
     def write_init(self, program: str) -> None:
         """Set the program the device runs at power-up."""
         self._write(INIT_FILE, program)
+
+    def command(self, line: str) -> str | None:
+        """Queue a device command through CMD.TXT (firmware >= 0.1.2). No reply is available
+        on this transport; a timestamp comment makes repeated identical commands take effect."""
+        import time
+        self._write(CMD_FILE, f"# {time.time_ns()}\n{line.strip()}\n")
+        return "sent (file)"
 
     def info(self) -> DeviceInfo | None:
         return read_status(self.mount)

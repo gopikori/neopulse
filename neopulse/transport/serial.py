@@ -33,8 +33,9 @@ class SerialTransport(Transport):
             buf += ch
         return None
 
-    def command(self, line: str) -> str | None:
-        """Send one command and return its reply, dispatching any `evt` lines on the way."""
+    def command(self, line: str, expect: str | None = None) -> str | None:
+        """Send one command and return its reply, dispatching `evt` lines on the way.
+        With `expect`, skip replies that do not start with it (stray `ok` from another path)."""
         self.ser.write((line.rstrip("\n") + "\n").encode())
         deadline = time.time() + self.timeout
         while True:
@@ -45,6 +46,8 @@ class SerialTransport(Transport):
                 self._pending.append(reply)
                 if self.on_event:
                     self.on_event(reply)
+                continue
+            if expect and not reply.startswith(expect):
                 continue
             return reply
 
@@ -58,8 +61,8 @@ class SerialTransport(Transport):
         self.command("off")
 
     def info(self) -> DeviceInfo | None:
-        reply = self.command("info")
-        return DeviceInfo.from_text(reply[5:]) if reply and reply.startswith("info ") else None
+        reply = self.command("info", expect="info ")
+        return DeviceInfo.from_text(reply[5:]) if reply else None
 
     def events(self, idle_timeout: float | None = None) -> Iterator[str]:
         """Yield `evt ...` lines as they arrive. Blocks; stop with KeyboardInterrupt."""

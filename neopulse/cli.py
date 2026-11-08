@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import shutil
@@ -67,23 +68,47 @@ def cmd_info(args):
             print(f"{k:8} {v}")
 
 
+def last_device_info() -> dict:
+    """Device info as last seen by the daemon (it holds the serial port)."""
+    try:
+        return json.loads((state_dir() / "device.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def cmd_bright(args):
-    with transport_from(args) as tr:
-        if tr.name != "serial":
+    level = (args.level or "").lower()
+    if not level:
+        info = last_device_info()
+        if "bright" in info:
+            print(f"brightness {info['bright']} (0-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
+        elif (state_dir() / "daemon.pid").exists():
+            print("brightness unknown yet (daemon just started; retry in a few seconds)")
+        else:
             try:
-                tr.close()
-                tr = open_transport("serial", None, args.port)
+                with open_transport("serial", None, args.port) as tr:
+                    i = tr.info()
+                    print(f"brightness {i.extra.get('bright', '?')} (0-100)")
             except TransportError:
-                die("brightness needs the serial channel; is the device plugged in?")
-        print(tr.command(f"bright {args.level}"))
+                print("brightness unknown (no daemon running and the serial port did not answer)")
+        print("set with: neopulse bright 60 | up | down | +10 | -10   (or hold pad 1 / pad 2)")
+        return
+    if level == "up":
+        arg = "+10"
+    elif level == "down":
+        arg = "-10"
+    elif level.lstrip("+-").isdigit():
+        arg = level if level[0] in "+-" else str(max(0, min(100, int(level))))
+    else:
+        die(f"bad level {args.level!r}: use 0-100, up, down, +N or -N")
+    with transport_from(args) as tr:
+        reply = tr.command(f"bright {arg}")
+        print(f"brightness {arg} -> {reply}" if tr.name == "file" else reply)
 
 
 def cmd_identify(args):
-    try:
-        with open_transport("serial", None, args.port) as tr:
-            print(tr.command("identify"))
-    except TransportError as e:
-        die(str(e))
+    with transport_from(args) as tr:
+        print(tr.command("identify"))
 
 
 def cmd_reset(args):
@@ -256,6 +281,7 @@ def run_daemon(args):
     print(f"neopulse monitor running (pid {os.getpid()})", flush=True)
     ser = None
     last = 0.0
+    last_info = 0.0
     misses = 0
     mode_cycle = ["lane", "unified", "off"]
     try:
@@ -269,6 +295,8 @@ def run_daemon(args):
                         ser = SerialTransport(port)
                         ser.command("local 0")  # daemon owns the tap gestures
                         print(f"serial {port} connected", flush=True)
+                        publish_info(ser)
+                        last_info = time.time()
                     except TransportError:
                         ser = None
                 else:
@@ -283,12 +311,17 @@ def run_daemon(args):
                     monitor.refresh(transport=None)
                 except Exception as e:
                     print(f"refresh error: {e}", flush=True)
+            if ser is not None and time.time() - last_info > 15:
+                last_info = time.time()
+                publish_info(ser)
             if ser is None:
                 time.sleep(1)
                 continue
             try:
                 for ev in ser.events(idle_timeout=1.0):
                     print(time.strftime("%H:%M:%S"), ev, flush=True)
+                    if ev.startswith("evt bright ") or ev.startswith("evt mute "):
+                        publish_info(ser)
                     if ev == "evt touch1 tap":
                         monitor.ack()
                         monitor.refresh(force=True)
@@ -313,6 +346,20 @@ def run_daemon(args):
             except Exception:
                 pass
         pid.unlink(missing_ok=True)
+
+
+def publish_info(ser) -> None:
+    try:
+        i = ser.info()
+        if i:
+            d = dict(i.extra)
+            d["t"] = time.time()
+            for k in ("leds", "touch", "bright", "mute", "local", "mem"):
+                if k in d:
+                    d[k] = int(d[k])
+            (state_dir() / "device.json").write_text(json.dumps(d))
+    except Exception as e:
+        print(f"info error: {e}", flush=True)
 
 
 def _launch_agent_path() -> Path:
@@ -472,58 +519,136 @@ def cmd_flash(args):
 
 
 # ---------------- parser ----------------
+OVERVIEW = """neopulse -- USB status light for coding agents
+
+Everyday
+  neopulse status                 what the device, hooks, daemon and sessions are doing
+  neopulse bright [60|up|down]    show or set brightness (or hold pad 1 / pad 2)
+  neopulse ack                    clear done/waiting lights (or tap pad 1)
+  neopulse mode lane|unified|off  layout (or tap pad 2)
+  neopulse demo                   cycle through every state
+
+Drive it yourself
+  neopulse state waiting --session ci     feed a state from scripts, CI, cron
+  neopulse write '#30d158 400ms ease'     raw LED program (see spec/PROTOCOL.md)
+  neopulse off | identify | events | info
+
+Setup
+  neopulse setup                  flash check + hooks + background daemon
+  neopulse hooks install|status   Claude Code / Codex hooks
+  neopulse flash                  put CircuitPython + firmware on a Neo Trinkey
+  neopulse reset                  restart a stopped firmware (solid white pixels)
+
+neopulse help <command> for details, e.g. neopulse help bright
+"""
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        if "invalid choice" in message and self.prog == "neopulse":
+            bad = message.split("'")[1]
+            close = difflib.get_close_matches(bad, COMMANDS, n=3, cutoff=0.5)
+            hint = f"  did you mean: {', '.join(close)}?" if close else ""
+            sys.stderr.write(f"neopulse: unknown command {bad!r}.{hint}\n\n{OVERVIEW}")
+            sys.exit(2)
+        super().error(message)
+
+
+COMMANDS: list[str] = []
+F = argparse.RawDescriptionHelpFormatter
+
+
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="neopulse", description="USB status light for coding agents")
+    ap = Parser(prog="neopulse", description=OVERVIEW, formatter_class=F)
     ap.add_argument("--version", action="version", version=f"neopulse {__version__}")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", metavar="<command>")
+
+    def add(name, help, desc=None, examples=None):
+        epilog = ("examples:\n" + "\n".join("  " + e for e in examples)) if examples else None
+        p = sub.add_parser(name, help=help, description=desc or help, epilog=epilog, formatter_class=F)
+        COMMANDS.append(name)
+        return p
 
     def dev_opts(p):
-        p.add_argument("--transport", choices=["auto", "file", "serial", "null"])
-        p.add_argument("--device", help="mount path of the drive")
-        p.add_argument("--port", help="serial port of the data channel")
+        g = p.add_argument_group("device selection (normally automatic)")
+        g.add_argument("--transport", choices=["auto", "file", "serial", "null"],
+                       help="file = write to the NEOPULSE drive, serial = data port, null = print only")
+        g.add_argument("--device", metavar="PATH", help="mount path of the drive, e.g. /Volumes/NEOPULSE")
+        g.add_argument("--port", metavar="PORT", help="serial port of the data channel")
 
-    p = sub.add_parser("write", help="send an LED program (text, or - for stdin)"); dev_opts(p)
-    p.add_argument("program"); p.add_argument("--init", action="store_true", help="also save as power-on program")
-    p.set_defaults(fn=cmd_write)
-    p = sub.add_parser("off", help="turn the light off"); dev_opts(p); p.set_defaults(fn=cmd_off)
-    p = sub.add_parser("info", help="device descriptor"); dev_opts(p); p.set_defaults(fn=cmd_info)
-    p = sub.add_parser("bright", help="set brightness 0-100 (persisted on device)"); p.add_argument("level", type=int)
-    p.add_argument("--port"); p.set_defaults(fn=cmd_bright)
-    p = sub.add_parser("identify", help="flash white to find the device"); p.add_argument("--port"); p.set_defaults(fn=cmd_identify)
-    p = sub.add_parser("reset", help="restart the firmware if it stopped (solid white pixels)"); p.set_defaults(fn=cmd_reset)
-    p = sub.add_parser("events", help="stream touch/device events"); p.add_argument("--port"); p.set_defaults(fn=cmd_events)
-    p = sub.add_parser("demo", help="cycle through the states"); dev_opts(p)
-    p.add_argument("--seconds", type=float, default=4); p.set_defaults(fn=cmd_demo)
+    p = add("help", "show help for a command", examples=["neopulse help", "neopulse help bright"])
+    p.add_argument("topic", nargs="?", metavar="<command>")
+    p.set_defaults(fn=lambda a: (build_parser().parse_args([a.topic, "-h"]) if a.topic else print(OVERVIEW)))
 
-    p = sub.add_parser("state", help="set a state by hand (from scripts, CI, cron)")
-    p.add_argument("state", choices=[s.value for s in State]); p.add_argument("--session", default="manual")
-    p.add_argument("--provider", default="manual"); p.set_defaults(fn=cmd_state)
-    sub.add_parser("ack", help="clear done/waiting lights").set_defaults(fn=cmd_ack)
-    sub.add_parser("clear", help="forget all sessions").set_defaults(fn=cmd_clear)
-    p = sub.add_parser("status", help="device, hooks, sessions"); p.add_argument("--no-serial", action="store_true")
+    p = add("status", "device, hooks, daemon and live sessions"); p.add_argument("--no-serial", action="store_true", help="skip the serial probe")
     p.set_defaults(fn=cmd_status)
-    p = sub.add_parser("mode", help="lane | unified | off"); p.add_argument("mode", nargs="?", choices=["lane", "unified", "off"])
-    p.set_defaults(fn=cmd_mode)
-    p = sub.add_parser("presence", help="dim glow when idle"); p.add_argument("value", choices=["on", "off"]); p.set_defaults(fn=cmd_presence)
-    p = sub.add_parser("profile", help="color profiles"); p.add_argument("action", choices=["list", "show", "use"])
-    p.add_argument("name", nargs="?"); p.set_defaults(fn=cmd_profile)
+    p = add("bright", "show or set brightness",
+            "Brightness is stored on the device (0-100). Without an argument, shows the current level.\n"
+            "Holding touch pad 1 lowers it and pad 2 raises it.",
+            ["neopulse bright", "neopulse bright 60", "neopulse bright up", "neopulse bright -20"])
+    p.add_argument("level", nargs="?", metavar="0-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
+    p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
+    p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
+    p = add("mode", "show or set the layout",
+            "lane: pixel 0 = aggregate, pixels 1.. = one agent each.  unified: all pixels show the aggregate.\n"
+            "off: dark. Tapping pad 2 cycles these.", ["neopulse mode", "neopulse mode unified"])
+    p.add_argument("mode", nargs="?", choices=["lane", "unified", "off"]); p.set_defaults(fn=cmd_mode)
+    p = add("presence", "dim glow when nothing is happening", examples=["neopulse presence on"])
+    p.add_argument("value", choices=["on", "off"]); p.set_defaults(fn=cmd_presence)
+    p = add("profile", "list or switch color profiles",
+            "Built-in: default, ember, mono. Drop your own JSON into ~/.config/neopulse/profiles/.",
+            ["neopulse profile list", "neopulse profile use ember", "neopulse profile show default"])
+    p.add_argument("action", choices=["list", "show", "use"]); p.add_argument("name", nargs="?"); p.set_defaults(fn=cmd_profile)
+    p = add("demo", "cycle through every state on the device", examples=["neopulse demo", "neopulse demo --seconds 2"])
+    dev_opts(p); p.add_argument("--seconds", type=float, default=4, metavar="N", help="seconds per state (default 4)")
+    p.set_defaults(fn=cmd_demo)
 
-    p = sub.add_parser("hooks", help="install agent hooks"); p.add_argument("action", choices=["install", "uninstall", "status"])
-    p.add_argument("provider", nargs="?", choices=["claude", "codex", "all"]); p.add_argument("--dry-run", action="store_true")
-    p.set_defaults(fn=cmd_hooks)
-    p = sub.add_parser("event", help=argparse.SUPPRESS); p.add_argument("provider"); p.set_defaults(fn=cmd_event)
-    p = sub.add_parser("monitor", help="background monitor"); p.add_argument("action", choices=["run", "refresh", "install-service", "uninstall-service"])
-    p.set_defaults(fn=cmd_monitor)
+    p = add("state", "set an agent state by hand (for scripts, CI, cron)",
+            "Feeds the same state machine the agent hooks use. Each --session is one lane.",
+            ["neopulse state working --session build", "neopulse state done --session build",
+             "neopulse state waiting --session deploy --provider codex"])
+    p.add_argument("state", choices=[s.value for s in State]); p.add_argument("--session", default="manual", metavar="NAME")
+    p.add_argument("--provider", default="manual", metavar="NAME", help="claude, codex or any label (sets the tint)")
+    p.set_defaults(fn=cmd_state)
+    p = add("write", "send a raw LED program",
+            "A program is one step per line; pass it as text (use \\n between lines) or '-' for stdin.\n"
+            "Language reference: spec/PROTOCOL.md",
+            ["neopulse write '#30d158 400ms ease'", "neopulse write 'off\\n#ff3a00 1.6s pulse\\nrepeat'",
+             "printf 'off\\n#ffb000 700ms pulse\\nrepeat\\n' | neopulse write -"])
+    dev_opts(p); p.add_argument("program", metavar="PROGRAM|-")
+    p.add_argument("--init", action="store_true", help="also save as the power-on program (INIT.LED)")
+    p.set_defaults(fn=cmd_write)
+    p = add("off", "turn the light off"); dev_opts(p); p.set_defaults(fn=cmd_off)
+    p = add("identify", "flash white three times to find the device"); dev_opts(p); p.set_defaults(fn=cmd_identify)
+    p = add("events", "stream touch and device events (stop the daemon first, it holds the port)")
+    p.add_argument("--port", metavar="PORT"); p.set_defaults(fn=cmd_events)
+    p = add("info", "device descriptor (firmware, pixel count, free memory)"); dev_opts(p); p.set_defaults(fn=cmd_info)
 
-    p = sub.add_parser("setup", help="firmware check + hooks + service, in one go"); p.add_argument("--no-service", action="store_true")
-    p.set_defaults(fn=cmd_setup)
-    p = sub.add_parser("flash", help="install CircuitPython + NeoPulse firmware on a Trinkey"); p.add_argument("--uf2")
-    p.set_defaults(fn=cmd_flash)
-    p = sub.add_parser("firmware", help="copy firmware files to a mounted drive"); p.add_argument("--device"); p.set_defaults(fn=cmd_firmware)
+    p = add("setup", "firmware check + hooks + background daemon, in one go")
+    p.add_argument("--no-service", action="store_true", help="do not install the launchd/systemd daemon"); p.set_defaults(fn=cmd_setup)
+    p = add("hooks", "install, remove or inspect agent hooks",
+            examples=["neopulse hooks status", "neopulse hooks install claude", "neopulse hooks uninstall all"])
+    p.add_argument("action", choices=["install", "uninstall", "status"])
+    p.add_argument("provider", nargs="?", choices=["claude", "codex", "all"], help="default: all")
+    p.add_argument("--dry-run", action="store_true", help="print what would be written"); p.set_defaults(fn=cmd_hooks)
+    p = add("monitor", "the background daemon (touch pads, timeouts, device recovery)",
+            examples=["neopulse monitor run", "neopulse monitor install-service", "neopulse monitor refresh"])
+    p.add_argument("action", choices=["run", "refresh", "install-service", "uninstall-service"]); p.set_defaults(fn=cmd_monitor)
+    p = add("reset", "restart the firmware if it stopped (all pixels solid white)"); p.set_defaults(fn=cmd_reset)
+    p = add("flash", "install CircuitPython + NeoPulse firmware on a Neo Trinkey",
+            "Reboots the board into its UF2 bootloader (or asks you to double-tap reset), copies CircuitPython, then the firmware.")
+    p.add_argument("--uf2", metavar="FILE", help="use this .uf2 instead of downloading"); p.set_defaults(fn=cmd_flash)
+    p = add("firmware", "copy the firmware files to a mounted CIRCUITPY/NEOPULSE drive")
+    p.add_argument("--device", metavar="PATH"); p.set_defaults(fn=cmd_firmware)
+    p = add("event", argparse.SUPPRESS); p.add_argument("provider"); p.set_defaults(fn=cmd_event)
     return ap
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        print(OVERVIEW)
+        return
     args = build_parser().parse_args(argv)
     try:
         args.fn(args)

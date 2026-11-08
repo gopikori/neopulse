@@ -44,19 +44,25 @@ echo "#30d158 400ms ease" > /Volumes/NEOPULSE/LEDS.LED              # solid gree
 printf 'off\n#ff3a00 1.6s pulse\nrepeat\n' > /Volumes/NEOPULSE/LEDS.LED   # pulse
 ```
 
-Or with the CLI (file or serial transport, auto-detected):
+Or with the CLI. `neopulse` alone prints the overview, `neopulse help <command>` the details:
 
-```bash
-neopulse write 'off\n#ffb000 700ms pulse\nrepeat'
-neopulse state waiting --session ci     # feed the agent state machine from CI / cron / scripts
-neopulse state done --session ci
-neopulse ack                            # same as tapping pad 1
-neopulse mode unified                   # or: lane | off   (pad 2 cycles these)
-neopulse profile use ember              # color profiles; add your own JSON in ~/.config/neopulse/profiles
-neopulse bright 40                      # or hold pad 1 / pad 2
-neopulse events                         # watch touch events live
-neopulse status
 ```
+Everyday
+  neopulse status                 what the device, hooks, daemon and sessions are doing
+  neopulse bright [60|up|down]    show or set brightness (or hold pad 1 / pad 2)
+  neopulse ack                    clear done/waiting lights (or tap pad 1)
+  neopulse mode lane|unified|off  layout (or tap pad 2)
+  neopulse demo                   cycle through every state
+
+Drive it yourself
+  neopulse state waiting --session ci     feed a state from scripts, CI, cron
+  neopulse write '#30d158 400ms ease'     raw LED program (see spec/PROTOCOL.md)
+  neopulse off | identify | events | info
+  neopulse profile use ember              color profiles; add JSON to ~/.config/neopulse/profiles
+```
+
+Every command works over the drive alone. Commands such as `bright` and `identify` go through
+`CMD.TXT` when the serial port is busy (the daemon holds it), so nothing depends on serial.
 
 Full language and serial protocol: [spec/PROTOCOL.md](spec/PROTOCOL.md).
 

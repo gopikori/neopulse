@@ -12,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.1.1"
+FW = "0.1.2"
 N = PIXELS
 N3 = N * 3
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
@@ -266,11 +266,11 @@ last_sum = -1   # checksum of the last applied LEDS.LED
 bad_sum = -1    # checksum of a file that failed once (report only if stable)
 
 
-def file_sum():
-    """Cheap content checksum of /LEDS.LED, or None if absent / half written (NULs)."""
+def file_sum(path):
+    """Cheap content checksum of a file, or None if absent / half written (NULs)."""
     s = 0
     try:
-        with open("/LEDS.LED", "r") as f:
+        with open(path, "r") as f:
             for ln in f:
                 if "\x00" in ln:
                     return None
@@ -283,7 +283,7 @@ def file_sum():
 
 def poll_file():
     global last_sum, bad_sum
-    s = file_sum()
+    s = file_sum("/LEDS.LED")
     if s is None or s == last_sum:
         return
     gc.collect()
@@ -304,6 +304,28 @@ def poll_file():
     emit("evt prog ok file")
 
 
+last_cmd = -1
+
+
+def poll_cmd():
+    """Run each non-comment line of /CMD.TXT through handle() when the file changes."""
+    global last_cmd, quiet
+    s = file_sum("/CMD.TXT")
+    if s is None or s == last_cmd:
+        return
+    last_cmd = s
+    quiet = 1
+    try:
+        with open("/CMD.TXT", "r") as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln and ln[0] != "#":
+                    handle(ln)
+    except OSError:
+        pass
+    quiet = 0
+
+
 def info():
     gc.collect()
     return "info neopulse=1 fw=%s leds=%d touch=%d bright=%d mute=%d local=%d mem=%d" % (
@@ -311,6 +333,12 @@ def info():
 
 
 rx = bytearray()
+quiet = 0   # 1 while running CMD.TXT lines: no ok/err/pong/info replies, only events
+
+
+def reply(s):
+    if not quiet:
+        emit(s)
 
 
 def handle(line):
@@ -324,38 +352,41 @@ def handle(line):
             p = parse_lines(arg.split("\\n"))
         except Exception as ex:
             emit("evt prog err serial %s" % ex)
-            emit("err parse")
+            reply("err parse")
             flash((40, 0, 0), 3, 80)
             return
         load(p)
         emit("evt prog ok serial")
-        emit("ok")
+        reply("ok")
     elif cmd == "off":
         set_off()
-        emit("ok")
+        reply("ok")
     elif cmd == "info":
-        emit(info())
+        reply(info())
     elif cmd == "ping":
-        emit("pong")
+        reply("pong")
     elif cmd == "bright":
         try:
-            BRIGHT = max(0, min(100, int(arg)))
+            a = arg.strip()
+            v = BRIGHT + int(a) if a[:1] in "+-" else int(a)
+            BRIGHT = max(0, min(100, v))
             save_cfg()
-            emit("ok")
+            emit("evt bright %d" % BRIGHT)
+            reply("ok")
         except ValueError:
-            emit("err bright")
+            reply("err bright")
     elif cmd == "mute":
         MUTE = 1 if arg.strip() == "1" else 0
-        emit("ok")
+        reply("ok")
     elif cmd == "local":
         LOCAL = 1 if arg.strip() == "1" else 0
         save_cfg()
-        emit("ok")
+        reply("ok")
     elif cmd == "identify":
         flash((120, 120, 120), 3)
-        emit("ok")
+        reply("ok")
     else:
-        emit("err unknown " + cmd)
+        reply("err unknown " + cmd)
 
 
 def poll_serial():
@@ -454,12 +485,16 @@ gc.collect()
 print("neopulse " + info())
 
 last_poll = 0
+odd = 0
 while True:
     try:
         t = now()
         if (t - last_poll) & 0x3FFFFFFF >= 250:
             last_poll = t
             poll_file()
+            odd ^= 1
+            if odd:
+                poll_cmd()
         poll_serial()
         if NT:
             poll_touch()
