@@ -63,7 +63,7 @@
 <circle cx="45" cy="62" r="16" fill="none" stroke="#ffb000" stroke-width="2" opacity=".7"/>
 <circle cx="45" cy="62" r="13" fill="#ffb000" class="n"/>
 <text x="45" y="66" text-anchor="middle" class="num">3</text>
-<text x="170" y="30" font-size="14" font-weight="600">Unified layout (tap pad 2)</text>
+<text x="170" y="30" font-size="14" font-weight="600">Unified mode (tap pad 2)</text>
 <text x="170" y="52" font-size="12" class="dim">All four pixels show the single most urgent state across every session.</text>
 </g>
   <g transform="translate(20,500)" font-size="12">

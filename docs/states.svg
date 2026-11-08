@@ -47,7 +47,7 @@
   <g transform="translate(0,370)">
     <circle cx="60" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="60" cy="10" r="12" fill="#00e5ff" class="c0"/><circle cx="90" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="90" cy="10" r="12" fill="#00e5ff" class="c1"/>
     <circle cx="120" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="120" cy="10" r="12" fill="#00e5ff" class="c2"/><circle cx="150" cy="10" r="15" fill="none" stroke="#00e5ff" stroke-width="2" opacity=".7"/><circle cx="150" cy="10" r="12" fill="#00e5ff" class="c3"/>
-    <text x="180" y="6" font-size="15" font-weight="600">unified layout</text>
+    <text x="180" y="6" font-size="15" font-weight="600">unified mode</text>
     <text x="180" y="24" font-size="12" class="dim">all four pixels show the aggregate; working becomes a chase. Tap pad 2 to switch.</text>
   </g>
 </svg>

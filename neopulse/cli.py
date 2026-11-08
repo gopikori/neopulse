@@ -455,7 +455,7 @@ Everyday
   neopulse status                 what the device, hooks, daemon and sessions are doing
   neopulse bright [60|up|down]    show or set brightness (or hold pad 1 / pad 2)
   neopulse ack                    clear done/waiting lights (or tap pad 1)
-  neopulse mode lane|unified|off  layout (or tap pad 2)
+  neopulse mode unified|lane|off  one light, one pixel per agent, or dark (pad 2 cycles)
   neopulse demo                   cycle through every state
 
 Drive it yourself
@@ -520,7 +520,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("level", nargs="?", metavar="2-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
     p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
     p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
-    p = add("mode", "show or set the layout",
+    p = add("mode", "show or set the mode",
             "unified (default): all pixels show the most urgent state.  lane: one pixel per agent session.\n"
             "off: dark. Tapping pad 2 cycles these.", ["neopulse mode", "neopulse mode unified"])
     p.add_argument("mode", nargs="?", choices=["lane", "unified", "off"]); p.set_defaults(fn=cmd_mode)
@@ -562,7 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["install", "uninstall", "status"])
     p.add_argument("provider", nargs="?", choices=["claude", "codex", "all"], help="default: all")
     p.add_argument("--dry-run", action="store_true", help="print what would be written"); p.set_defaults(fn=cmd_hooks)
-    p = add("menubar", "macOS menu-bar app: sessions, layout, brightness, notifications (needs rumps)")
+    p = add("menubar", "macOS menu-bar app: sessions, mode, brightness, notifications (needs rumps)")
     p.set_defaults(fn=cmd_menubar)
     p = add("monitor", "the background daemon (touch pads, timeouts, device recovery)",
             examples=["neopulse monitor run", "neopulse monitor install-service", "neopulse monitor refresh"])

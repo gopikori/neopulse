@@ -48,11 +48,11 @@
         <div><span class="dot" style="background:#30d158"></span>done</div>
         <div><span class="dot" style="background:#222; border:1px solid #444"></span>idle / off</div>
       </div>
-      <p><small>Lane layout: each pixel is one agent session, taken in order 0, 1, 2, 3 (clockwise) when the session starts and kept until it ends. Pad 1: tap = acknowledge, hold = dimmer. Pad 2: tap = cycle layout, hold = brighter.</small></p>
+      <p><small>Lane mode: each pixel is one agent session, taken in order 0, 1, 2, 3 (clockwise) when the session starts and kept until it ends. Pad 1: tap = acknowledge, hold = dimmer. Pad 2: tap = cycle mode, hold = brighter.</small></p>
     </div>
   </div>
   <div class="panel">
-    <div class="row"><label>layout</label>
+    <div class="row"><label>mode</label>
       <button id="m-unified" class="on" onclick="setMode('unified')">unified (default)</button>
       <button id="m-lane" onclick="setMode('lane')">one pixel per agent</button>
       <button id="m-off" onclick="setMode('off')">off</button>

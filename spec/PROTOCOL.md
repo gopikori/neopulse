@@ -92,7 +92,7 @@ Component side up, USB plug to the left. The NeoPixel chain runs clockwise from 
                                 (3) (2)  [1]   pad 1, bottom edge
 ```
 
-Index 0 is top-left, 1 top-right, 2 bottom-right, 3 bottom-left. The host's lane layout gives
+Index 0 is top-left, 1 top-right, 2 bottom-right, 3 bottom-left. The host's lane mode gives
 each agent session one pixel, assigned in that order when the session starts.
 
 ## Touch gestures (Neo Trinkey default profile)
@@ -100,7 +100,7 @@ each agent session one pixel, assigned in that order when the session starts.
 | Gesture | Device-local action (`local=1`) | With host daemon (`local=0`) |
 |---|---|---|
 | pad 1 tap | clear the light (ack) | ack: done/waiting sessions go idle |
-| pad 2 tap | mute toggle | cycle layout: lane → unified → off |
+| pad 2 tap | mute toggle | cycle mode: lane → unified → off |
 | pad 1 hold | brightness down (repeats) | same (always local) |
 | pad 2 hold | brightness up (repeats) | same (always local) |
 | both held 1.5 s | identify flash + save config | same |

@@ -39,7 +39,7 @@
   <!-- annotations -->
   <g fill="#e6e6e6" font-size="13">
     <text x="640" y="112">pad 2</text>
-    <text x="640" y="130" fill="#9aa" font-size="12">tap: cycle layout</text>
+    <text x="640" y="130" fill="#9aa" font-size="12">tap: cycle mode</text>
     <text x="640" y="146" fill="#9aa" font-size="12">hold: brighter</text>
     <text x="640" y="184">pad 1</text>
     <text x="640" y="202" fill="#9aa" font-size="12">tap: acknowledge</text>

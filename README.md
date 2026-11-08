@@ -9,7 +9,7 @@ without looking at the terminal.
 
 ## How to read it
 
-**Default: one light.** All four pixels show the single most urgent state across every agent
+**Default mode: one light.** All four pixels show the single most urgent state across every agent
 session, exactly like a SidePulse. If any agent needs you, the board pulses amber, whatever
 the others are doing. Priority: blocked > needs you > working > done > idle.
 
@@ -25,17 +25,17 @@ Animations are named and swappable per state in a profile (`neopulse profile sho
 Available: `roll`, `tide`, `kitt`, `night-rider`, `attention`, `breathe`, `chase`, `blink`,
 `complete`, `idle-pulse`, `fill-in`, `rainbow`. SidePulse's own `.LED` files also run unchanged.
 
-![What one pixel means in per-agent layout](docs/states.svg)
+![What one pixel means in per-agent mode](docs/states.svg)
 
-**Optional: one pixel per agent.** Tap pad 2 (or `neopulse mode lane`) and each session takes
+**Optional mode: one pixel per agent.** Tap pad 2 (or `neopulse mode lane`) and each session takes
 the lowest free pixel when it starts and keeps it until it ends. Color and motion of that pixel
 is that agent's state. Four sessions fill the board. Tap pad 2 again for off, again for back to
-one light. The daemon flashes 1, 2 or 3 white pixels to tell you which layout you landed on.
+one light. The daemon flashes 1, 2 or 3 white pixels to tell you which mode you landed on.
 
-![Worked examples of the per-agent layout](docs/scenarios.svg)
+![Worked examples of the per-agent mode](docs/scenarios.svg)
 
-`neopulse status` lists sessions and, in per-agent layout, who owns which pixel. Try either
-layout without hardware in [docs/simulator.html](docs/simulator.html)
+`neopulse status` lists sessions and, in per-agent mode, who owns which pixel. Try either
+mode without hardware in [docs/simulator.html](docs/simulator.html)
 (or the [live copy](https://htmlpreview.github.io/?https://github.com/gopikori/neopulse/blob/main/docs/simulator.html)).
 
 ## Menu-bar app (macOS)
@@ -46,7 +46,7 @@ layout without hardware in [docs/simulator.html](docs/simulator.html)
 login item when rumps is present). The icon is the most urgent state: 🔵 working, 🟡 needs you,
 🔴 blocked, 🟢 done, with a count when more than one agent is active. The menu lists every
 session with its state, provider and folder (open it in Terminal or Finder), and offers
-acknowledge, layout, brightness, color profile, pause, and a native notification whenever an
+acknowledge, mode, brightness, color profile, pause, and a native notification whenever an
 agent starts needing you. The menu-bar app is the daemon: it owns the serial port, so run either
 it or `neopulse monitor run`, not both.
 
@@ -61,7 +61,7 @@ the numbers printed on the board.
 ```
             ┌──────────────────────────────────────┐
             │                      ┌───┐  ┌───┐   ┌─┐│
-  USB ══════│   SAMD21   (reset)   │ 0 │  │ 1 │   │2││  pad 2  tap: cycle layout   hold: brighter
+  USB ══════│   SAMD21   (reset)   │ 0 │  │ 1 │   │2││  pad 2  tap: cycle mode   hold: brighter
             │                      ├───┤  ├───┤   ├─┤│
             │                      │ 3 │  │ 2 │   │1││  pad 1  tap: acknowledge    hold: dimmer
             │                      └───┘  └───┘   └─┘│
@@ -111,7 +111,7 @@ Everyday
   neopulse status                 what the device, hooks, daemon and sessions are doing
   neopulse bright [60|up|down]    show or set brightness (or hold pad 1 / pad 2)
   neopulse ack                    clear done/waiting lights (or tap pad 1)
-  neopulse mode lane|unified|off  layout (or tap pad 2)
+  neopulse mode unified|lane|off  one light, one pixel per agent, or dark (pad 2 cycles)
   neopulse demo                   cycle through every state
 
 Drive it yourself
@@ -139,7 +139,7 @@ nothing (hook stdout would leak into the model's context), and always exits 0.
 
 The optional daemon (`neopulse monitor run`, or `monitor install-service` for launchd / systemd)
 handles what hooks cannot: fading "done" after 20 minutes, dropping stale sessions, and the touch
-pads (ack, layout cycling). Without it everything still works except those three.
+pads (ack, mode cycling). Without it everything still works except those three.
 
 ## Architecture
 
@@ -173,7 +173,7 @@ Boards with more RAM can skip the `.mpy` step and run `neopulse_fw.py` as `code.
 - **Nothing lights up after a hook fires**: `neopulse status` shows the sessions it knows about and
   whether the daemon is running; `~/.local/state/neopulse/monitor.log` has the daemon's view;
   `neopulse info` reports `bright=` (hold pad 2 or run `neopulse bright 60` if it is low).
-- **All pixels off, no white**: the layout is probably `off` (tapping pad 2 cycles one light, per-agent,
+- **All pixels off, no white**: the mode is probably `off` (tapping pad 2 cycles one light, per-agent,
   off; the daemon flashes 1, 2 or 3 white pixels to show which one you landed on) or brightness is
   at the floor. `neopulse mode unified` and `neopulse bright 60` bring it back. The reset button
   restarts the firmware but does not change these, since they live on the host and in device NVM.

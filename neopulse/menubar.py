@@ -15,7 +15,7 @@ from .states import State, list_profiles
 ICON = {State.BLOCKED: "🔴", State.WAITING: "🟡", State.WORKING: "🔵", State.DONE: "🟢", State.IDLE: "⚪"}
 LABEL = {State.BLOCKED: "blocked", State.WAITING: "needs you", State.WORKING: "working",
          State.DONE: "done", State.IDLE: "idle"}
-MODE_LABEL = {"unified": "One light (most urgent state)", "lane": "One pixel per agent", "off": "Off"}
+MODE_LABEL = {"unified": "One light (most urgent agent)", "lane": "One pixel per agent", "off": "Off (light stays dark)"}
 
 
 def _open_terminal(cwd: str) -> None:
@@ -76,7 +76,7 @@ def main() -> None:
             self.header.set_callback(None)
             self.sessions_sep = rumps.separator
             self.ack_item = rumps.MenuItem("Acknowledge (clear done / needs you)", callback=self.on_ack)
-            self.mode_menu = rumps.MenuItem("Layout")
+            self.mode_menu = rumps.MenuItem("Mode")
             self.mode_items = {}
             for m in MODE_CYCLE:
                 it = rumps.MenuItem(MODE_LABEL[m], callback=lambda sender, m=m: self.on_mode(m))
@@ -118,7 +118,10 @@ def main() -> None:
             cfg = monitor.load_config()
             agg = min((s.state for s in sessions.values()), key=lambda st: list(State).index(st), default=None)
             active = sum(1 for s in sessions.values() if s.state != State.IDLE)
-            self.title = (ICON[agg] if agg else "⚪") + (f" {active}" if active > 1 else "")
+            if cfg.get("mode") == "off":
+                self.title = "⏾"                       # light deliberately dark
+            else:
+                self.title = (ICON[agg] if agg else "⚪") + (f" {active}" if active > 1 else "")
             self.header.title = f"NeoPulse: {len(sessions)} session{'s' if len(sessions) != 1 else ''}" if sessions else "NeoPulse: no agent sessions"
             # session rows
             for it in self.sessions_items:
