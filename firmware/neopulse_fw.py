@@ -12,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.1.3"
+FW = "0.1.4"
 N = PIXELS
 N3 = N * 3
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
@@ -369,7 +369,7 @@ def handle(line):
         try:
             a = arg.strip()
             v = BRIGHT + int(a) if a[:1] in "+-" else int(a)
-            BRIGHT = max(5, min(100, v))
+            BRIGHT = max(2, min(100, v))
             save_cfg()
             emit("evt bright %d" % BRIGHT)
             reply("ok")
@@ -440,7 +440,7 @@ def on_hold(i, first):
     global BRIGHT
     if first:
         emit("evt touch%d hold" % (i + 1))
-    BRIGHT = max(5, min(100, BRIGHT + (10 if i == 1 else -10)))  # always local
+    BRIGHT = max(2, min(100, BRIGHT + (10 if i == 1 else -10)))  # always local
     emit("evt bright %d" % BRIGHT)
 
 

@@ -57,7 +57,7 @@ Commands (host → device) and replies:
 | `info` | `info neopulse=1 fw=.. leds=4 touch=2 bright=60 mute=0 local=1 mem=6100` | `mem` is free heap in bytes. |
 | `write <program>` | `ok` or `err parse` | Newlines escaped as the two characters `\n`. |
 | `off` | `ok` | Clear the program. |
-| `bright 5-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, clamped to 5..100 and persisted in NVM. Use `mute 1` for dark. |
+| `bright 2-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, clamped to 2..100 and persisted in NVM. Use `mute 1` for dark. |
 | `mute 0|1` | `ok` | Blank the pixels without losing the program. |
 | `local 0|1` | `ok` | 1: touch taps act on the device (ack / mute). 0: taps only emit events (a host daemon owns them). Persisted. |
 | `identify` | `ok` | Three white flashes. |

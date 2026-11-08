@@ -98,7 +98,7 @@ def cmd_bright(args):
     elif level == "down":
         arg = "-10"
     elif level.lstrip("+-").isdigit():
-        arg = level if level[0] in "+-" else str(max(5, min(100, int(level))))
+        arg = level if level[0] in "+-" else str(max(2, min(100, int(level))))
     else:
         die(f"bad level {args.level!r}: use 0-100, up, down, +N or -N")
     with transport_from(args) as tr:
@@ -591,10 +591,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("status", "device, hooks, daemon and live sessions"); p.add_argument("--no-serial", action="store_true", help="skip the serial probe")
     p.set_defaults(fn=cmd_status)
     p = add("bright", "show or set brightness",
-            "Brightness is stored on the device (5-100; use mute or mode off for dark). Without an argument, shows the current level.\n"
+            "Brightness is stored on the device (2-100; use mute or mode off for dark). Without an argument, shows the current level.\n"
             "Holding touch pad 1 lowers it and pad 2 raises it.",
             ["neopulse bright", "neopulse bright 60", "neopulse bright up", "neopulse bright -20"])
-    p.add_argument("level", nargs="?", metavar="5-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
+    p.add_argument("level", nargs="?", metavar="2-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
     p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
     p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
     p = add("mode", "show or set the layout",
