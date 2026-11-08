@@ -1,0 +1,16 @@
+{
+  "name": "default",
+  "description": "Cyan working, amber needs-you, red blocked, green done. Claude cyan / Codex violet tint.",
+  "colors": {
+    "working": "#00e5ff",
+    "waiting": "#ffb000",
+    "blocked": "#ff2a2a",
+    "done": "#30d158",
+    "idle": "#000000"
+  },
+  "provider_tint": {
+    "claude": { "working": "#00e5ff", "done": "#30d158" },
+    "codex":  { "working": "#7c5cff", "done": "#30d158" }
+  },
+  "presence": "#040608"
+}

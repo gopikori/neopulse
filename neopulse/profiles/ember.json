@@ -1,0 +1,16 @@
+{
+  "name": "ember",
+  "description": "Warm palette: orange working, yellow needs-you, red blocked, white done.",
+  "colors": {
+    "working": "#ff6a00",
+    "waiting": "#ffd000",
+    "blocked": "#ff1030",
+    "done": "#ffffff",
+    "idle": "#000000"
+  },
+  "provider_tint": {
+    "claude": { "working": "#ff6a00" },
+    "codex":  { "working": "#ff2d95" }
+  },
+  "presence": "#080402"
+}

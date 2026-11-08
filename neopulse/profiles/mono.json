@@ -1,0 +1,13 @@
+{
+  "name": "mono",
+  "description": "Colorblind-friendly: motion carries the state, colors are blue/white only.",
+  "colors": {
+    "working": "#2060ff",
+    "waiting": "#ffffff",
+    "blocked": "#ffffff",
+    "done": "#2060ff",
+    "idle": "#000000"
+  },
+  "provider_tint": {},
+  "presence": "#020308"
+}
