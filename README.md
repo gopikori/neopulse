@@ -118,6 +118,10 @@ pytest
 tools/deploy.sh            # rebuild lib/neopulse_fw.mpy (needs tools/mpy-cross 10.3.1) and copy to the board
 ```
 
+Changes to `boot.py` (drive label, `STATUS.TXT`, the second serial port) only apply on a real
+power-on: unplug and replug the board. A reset from the REPL or `neopulse reset` reruns `code.py`
+only.
+
 Firmware debugging: the first USB serial port is the CircuitPython console; Ctrl-C shows where the
 loop is, Ctrl-D reloads. Note this SAMD21 build lacks `str.encode`, `bytes.decode`, `str.partition`
 and `json`.

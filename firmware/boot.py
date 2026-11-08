@@ -16,8 +16,14 @@ except Exception:
 
 usb_cdc.enable(console=True, data=True)
 
+print("neopulse boot.py fw", FW)
 try:
     storage.remount("/", readonly=False)
+    try:
+        import os
+        os.remove("/STATUS.TXT")  # recreate rather than overwrite in place
+    except OSError:
+        pass
     try:
         storage.getmount("/").label = "NEOPULSE"
     except Exception:
@@ -27,5 +33,6 @@ try:
             FW, board.board_id, PIXELS, len(TOUCH_PINS),
             "".join("%02X" % b for b in microcontroller.cpu.uid)))
     storage.remount("/", readonly=True)
+    print("STATUS.TXT written")
 except Exception as e:
-    print("boot.py:", e)
+    print("boot.py error:", e)
