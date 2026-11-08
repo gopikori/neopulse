@@ -152,15 +152,15 @@ def cmd_clear(args):
 
 def cmd_status(args):
     m = find_mount()
-    port = None if args.no_serial else find_serial()
+    pid = state_dir() / "daemon.pid"
+    port = None if (args.no_serial or pid.exists()) else find_serial()
     info = read_status(m) if m else None
     print(f"drive    {m or '-'}")
-    print(f"serial   {port or '-'}")
+    print(f"serial   {port or ('in use by daemon' if pid.exists() else '-')}")
     if info:
         print(f"device   {info.board} fw={info.fw} leds={info.leds} touch={info.touch}")
     cfg = monitor.load_config()
     print(f"mode     {cfg['mode']}  profile={cfg['profile']}  presence={cfg['presence']}")
-    pid = state_dir() / "daemon.pid"
     print(f"daemon   {'running pid ' + pid.read_text().strip() if pid.exists() else 'not running'}")
     from .hooks import PROVIDERS, get
     for p in PROVIDERS:
