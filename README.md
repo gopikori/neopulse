@@ -7,18 +7,51 @@ An open-source USB status light for AI coding agents, built on the $7 **Adafruit
 Know whether Claude Code or Codex is **working**, **needs you**, is **blocked**, or **done**
 without looking at the terminal. Four pixels show up to three agents at once.
 
+## At a glance
+
+![Board layout: pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left; pad 2 top edge, pad 1 bottom edge](docs/board-layout.svg)
+
+![What the light means: working breathes cyan or violet, needs-you double-pulses amber, blocked blinks red, done is solid green](docs/states.svg)
+
+Try it without hardware: open [docs/simulator.html](docs/simulator.html) in a browser
+(or the [live copy](https://htmlpreview.github.io/?https://github.com/gopikori/neopulse/blob/main/docs/simulator.html)).
+Pick what each agent is doing and it shows the board plus the exact program sent to the device.
+
+### Pixels and pads
+
+Hold the board component side up with the USB plug to the left. Numbers are the pixel indexes
+used everywhere in NeoPulse (programs, `neopulse write 0:#ff0000`, the simulator). Pads carry
+the numbers printed on the board.
+
 ```
-pixel 0   aggregate (highest-priority state across all sessions)
-pixel 1-3 one lane per agent session, most urgent first
+            ┌──────────────────────────────────────┐
+            │                      ┌───┐  ┌───┐   ┌─┐│
+  USB ══════│   SAMD21   (reset)   │ 0 │  │ 1 │   │2││  pad 2  tap: cycle layout   hold: brighter
+            │                      ├───┤  ├───┤   ├─┤│
+            │                      │ 3 │  │ 2 │   │1││  pad 1  tap: acknowledge    hold: dimmer
+            │                      └───┘  └───┘   └─┘│
+            └──────────────────────────────────────┘
 ```
 
-| State | Lane pattern | Unified pattern | Default color |
+| Pixel | Lane layout (default) | Unified layout |
+|---|---|---|
+| 0 top-left | aggregate: the most urgent state across all sessions | aggregate |
+| 1 top-right | most urgent session | aggregate |
+| 2 bottom-right | second session | aggregate |
+| 3 bottom-left | third session | aggregate |
+
+### States
+
+| State | Lane pattern | Unified pattern | Color |
 |---|---|---|---|
-| working / tool running | slow breathe | chase | cyan (Claude) / violet (Codex) |
-| waiting for you | fast double pulse | fast pulse | amber |
-| blocked / error | double blink | double blink | red |
-| done | solid, fades after 20 min | solid | green |
-| idle | off (or dim "presence" glow) | off | – |
+| working / tool running | slow breathe | chase | cyan `#00e5ff` Claude, violet `#7c5cff` Codex |
+| needs you | fast double pulse | fast pulse | amber `#ffb000` |
+| blocked / error | double blink | double blink | red `#ff2a2a` |
+| done | solid, fades after 20 min | solid | green `#30d158` |
+| idle | off (or dim glow with `presence on`) | off | – |
+
+Priority when several sessions disagree: blocked > needs you > working > done > idle.
+Colors come from a JSON profile (`neopulse profile list`); `ember` and `mono` are included.
 
 ## Install
 

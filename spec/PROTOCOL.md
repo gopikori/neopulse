@@ -75,6 +75,18 @@ evt mute <0|1>
 evt error memory | evt error <text>   the main loop caught an exception and recovered (program dropped)
 ```
 
+## Physical layout (Neo Trinkey)
+
+Component side up, USB plug to the left. The NeoPixel chain runs clockwise from the top-left:
+
+```
+  USB ══════ [SAMD21] (reset)   (0) (1)  [2]   pad 2, top edge
+                                (3) (2)  [1]   pad 1, bottom edge
+```
+
+Index 0 is top-left, 1 top-right, 2 bottom-right, 3 bottom-left. Lane layout uses 0 as the
+aggregate and 1, 2, 3 as sessions in clockwise order.
+
 ## Touch gestures (Neo Trinkey default profile)
 
 | Gesture | Device-local action (`local=1`) | With host daemon (`local=0`) |
