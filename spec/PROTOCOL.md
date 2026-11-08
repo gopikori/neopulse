@@ -14,7 +14,7 @@ sub-100 ms latency, device info and touch events.
 |---|---|---|
 | `LEDS.LED` | host → device | The current LED program. Rewrite it to change the light. Polled every 250 ms. Write a temp file and rename it over `LEDS.LED` so the device never sees a half-written file (the CLI does this via `LEDS.TMP`). Half-written files (NULs) are ignored; a parse error is reported only when the same bad content is seen on two polls. |
 | `INIT.LED` | host → device | Program run at power-up. Optional. |
-| `CMD.TXT` | host → device | Any serial command (below), one per line, for hosts without serial or when a daemon holds the port. Polled every 500 ms; lines starting with `#` are ignored, so prefix a timestamp comment to re-run an identical command. Firmware ≥ 0.1.2. |
+| `CMD.TXT` | host → device | Any serial command (below), one per line, for hosts without serial or when a daemon holds the port. Polled every 500 ms; the content present at boot is ignored (no replay); lines starting with `#` are ignored, so prefix a timestamp comment to re-run an identical command. Firmware ≥ 0.1.2. |
 | `STATUS.TXT` | device → host | Device descriptor written at boot: `neopulse=1 fw=0.1.2 board=... leds=4 touch=2 uid=...` |
 | `boards/profile.py` | – | Hardware profile (pin, pixel count, touch pins). Edit to port. |
 
@@ -57,7 +57,7 @@ Commands (host → device) and replies:
 | `info` | `info neopulse=1 fw=.. leds=4 touch=2 bright=60 mute=0 local=1 mem=6100` | `mem` is free heap in bytes. |
 | `write <program>` | `ok` or `err parse` | Newlines escaped as the two characters `\n`. |
 | `off` | `ok` | Clear the program. |
-| `bright 0-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, persisted in NVM. |
+| `bright 5-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, clamped to 5..100 and persisted in NVM. Use `mute 1` for dark. |
 | `mute 0|1` | `ok` | Blank the pixels without losing the program. |
 | `local 0|1` | `ok` | 1: touch taps act on the device (ack / mute). 0: taps only emit events (a host daemon owns them). Persisted. |
 | `identify` | `ok` | Three white flashes. |

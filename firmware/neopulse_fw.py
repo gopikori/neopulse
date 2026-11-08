@@ -12,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.1.2"
+FW = "0.1.3"
 N = PIXELS
 N3 = N * 3
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
@@ -369,7 +369,7 @@ def handle(line):
         try:
             a = arg.strip()
             v = BRIGHT + int(a) if a[:1] in "+-" else int(a)
-            BRIGHT = max(0, min(100, v))
+            BRIGHT = max(5, min(100, v))
             save_cfg()
             emit("evt bright %d" % BRIGHT)
             reply("ok")
@@ -481,6 +481,7 @@ try:
     emit("evt prog ok init")
 except Exception:
     load(parse_lines(["#102030 1.2s pulse"]))  # hello blink
+last_cmd = file_sum("/CMD.TXT") or -1   # commands written before this boot are stale
 gc.collect()
 print("neopulse " + info())
 

@@ -122,14 +122,17 @@ def console_candidates(data_port: str | None = None) -> list[str]:
     return [p for p in sorted(serial_candidates()) if p != data_port]
 
 
-def soft_reset(data_port: str | None = None, wait: float = 4.0) -> bool:
+def soft_reset(data_port: str | None = None, wait: float = 4.0, verify: bool = True) -> bool:
     """Restart code.py by sending Ctrl-C, Ctrl-D to the console. Returns True if the data
-    channel answers ping afterwards. Use when the firmware has stopped (solid white pixels)."""
+    channel answers ping afterwards (or, with verify=False, once the keystrokes were sent).
+    Use when the firmware has stopped (solid white pixels)."""
     try:
         import serial
     except ImportError:
         return False
     for port in console_candidates(data_port):
+        if not verify and port != console_candidates(data_port)[0]:
+            break  # the console is the lowest-numbered port; the other one belongs to a daemon
         try:
             with serial.Serial(port, 115200, timeout=0.2) as s:
                 s.write(b"\x03")
@@ -140,6 +143,8 @@ def soft_reset(data_port: str | None = None, wait: float = 4.0) -> bool:
                 s.write(b"\x04")
         except Exception:
             continue
+        if not verify:
+            return True
         deadline = time.time() + wait
         while time.time() < deadline:
             time.sleep(0.5)

@@ -146,6 +146,10 @@ Boards with more RAM can skip the `.mpy` step and run `neopulse_fw.py` as `code.
 - **Nothing lights up after a hook fires**: `neopulse status` shows the sessions it knows about and
   whether the daemon is running; `~/.local/state/neopulse/monitor.log` has the daemon's view;
   `neopulse info` reports `bright=` (hold pad 2 or run `neopulse bright 60` if it is low).
+- **All pixels off, no white**: the layout is probably `off` (tapping pad 2 cycles lane, unified,
+  off; the daemon flashes 1, 2 or 3 white pixels to show which one you landed on) or brightness is
+  at the floor. `neopulse mode lane` and `neopulse bright 60` bring it back. The reset button
+  restarts the firmware but does not change these, since they live on the host and in device NVM.
 - **Hooks only load when an agent session starts**, so restart Claude Code / Codex after
   `neopulse hooks install`.
 
