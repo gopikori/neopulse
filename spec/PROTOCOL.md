@@ -65,7 +65,7 @@ Commands (host → device) and replies:
 | `info` | `info neopulse=1 fw=.. leds=4 touch=2 bright=60 mute=0 local=1 mem=6100` | `mem` is free heap in bytes. |
 | `write <program>` | `ok` or `err parse` | Newlines escaped as the two characters `\n`. |
 | `off` | `ok` | Clear the program. |
-| `bright 2-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, clamped to 2..100 and persisted in NVM. Use `mute 1` for dark. |
+| `bright 2-100` or `bright +N` / `bright -N` | `evt bright <n>`, `ok` | Device brightness, absolute or relative, clamped to 2..100 and persisted in NVM. All pixels flash white at the new level for 250 ms as feedback. Use `mute 1` for dark. |
 | `mute 0|1` | `ok` | Blank the pixels without losing the program. |
 | `local 0|1` | `ok` | 1: touch taps act on the device (ack / mute). 0: taps only emit events (a host daemon owns them). Persisted. |
 | `identify` | `ok` | Three white flashes. |
@@ -101,8 +101,8 @@ each agent session one pixel, assigned in that order when the session starts.
 |---|---|---|
 | pad 1 tap | clear the light (ack) | ack: done/waiting sessions go idle |
 | pad 2 tap | mute toggle | cycle mode: lane → unified → off |
-| pad 1 hold | brightness down (repeats) | same (always local) |
-| pad 2 hold | brightness up (repeats) | same (always local) |
+| pad 1 hold | brightness down (repeats); pixels show white at the live level while held | same (always local) |
+| pad 2 hold | brightness up (repeats); pixels show white at the live level while held | same (always local) |
 | both held 1.5 s | identify flash + save config | same |
 
 ## Porting to other hardware

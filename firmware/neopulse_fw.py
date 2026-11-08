@@ -12,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.2.1"
+FW = "0.2.2"
 N = PIXELS
 N3 = N * 3
 ALL = (1 << N) - 1
@@ -320,7 +320,22 @@ def finish_step():
     skip_markers()
 
 
+fb_t = 0      # brightness feedback: show white at the new level until fb_len ms after fb_t
+fb_len = 0
+
+
+def bright_feedback(ms):
+    global fb_t, fb_len
+    fb_t = now()
+    fb_len = ms
+
+
 def show():
+    if fb_len and since(fb_t) < fb_len:
+        w = BRIGHT * 100 * 65025 // 2550000       # white at the device brightness, same gamma path
+        px.fill((w << 16) | (w << 8) | w)
+        px.show()
+        return
     b = BRIGHT * prog.bright * 100 // 255   # 0..10000
     if MUTE:
         b = 0
@@ -463,6 +478,7 @@ def handle(line):
             v = BRIGHT + int(a) if a[:1] in "+-" else int(a)
             BRIGHT = max(2, min(100, v))
             save_cfg()
+            bright_feedback(250)
             emit("evt bright %d" % BRIGHT)
             reply("ok")
         except ValueError:
@@ -536,6 +552,7 @@ def on_hold(i, first):
     if first:
         emit("evt touch%d hold" % (i + 1))
     BRIGHT = max(2, min(100, BRIGHT + (10 if i == 1 else -10)))
+    bright_feedback(300)
     emit("evt bright %d" % BRIGHT)
 
 
