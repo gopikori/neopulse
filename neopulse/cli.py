@@ -81,17 +81,17 @@ def cmd_bright(args):
     if not level:
         info = last_device_info()
         if "bright" in info:
-            print(f"brightness {info['bright']} (0-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
+            print(f"brightness {info['bright']} (2-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
         elif (state_dir() / "daemon.pid").exists():
             print("brightness unknown yet (daemon just started; retry in a few seconds)")
         else:
             try:
                 with open_transport("serial", None, args.port) as tr:
                     i = tr.info()
-                    print(f"brightness {i.extra.get('bright', '?')} (0-100)")
+                    print(f"brightness {i.extra.get('bright', '?')} (2-100)")
             except TransportError:
                 print("brightness unknown (no daemon running and the serial port did not answer)")
-        print("set with: neopulse bright 60 | up | down | +10 | -10   (or hold pad 1 / pad 2)")
+        print("set with: neopulse bright 2-100 | up | down | +10 | -10   (or hold pad 1 / pad 2)")
         return
     if level == "up":
         arg = "+10"
