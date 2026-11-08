@@ -7,6 +7,21 @@ An open-source USB status light for AI coding agents, built on the $7 **Adafruit
 Know whether Claude Code or Codex is **working**, **needs you**, is **blocked**, or **done**
 without looking at the terminal.
 
+![Neo Trinkey on a USB-C adapter plugged into a MacBook, the four pixels lit](docs/photos/board-in-laptop.jpg)
+
+![An agent at work while the board shows its status](docs/photos/agent-status-demo.gif)
+
+*The board tracking a Claude Code session. [Video (MP4, 5 s)](docs/photos/agent-status-demo.mp4).*
+
+## The hardware
+
+![Adafruit Neo Trinkey, front and back, next to a US penny and the $6.99 Micro Center tag](docs/photos/trinkey-and-penny.jpg)
+
+The whole bill of materials: an [Adafruit Neo Trinkey](https://www.adafruit.com/product/4870)
+(ATSAMD21, four NeoPixels, two capacitive touch pads, USB-A plug), $6.99 at Micro Center. On a
+USB-C laptop you also need a small adapter. Any other CircuitPython board with NeoPixels works
+too; see [Other hardware](#other-hardware).
+
 ## How to read it
 
 **Default mode: one light.** All four pixels show the single most urgent state across every agent
