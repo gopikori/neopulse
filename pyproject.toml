@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "Open-source USB status light for AI coding agents (Claude Code, Codex) on Adafruit Neo Trinkey and other CircuitPython NeoPixel boards."
 readme = "README.md"
 license = { text = "MIT" }
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 dependencies = ["pyserial>=3.5"]
 keywords = ["neopixel", "status-light", "claude-code", "codex", "circuitpython", "trinkey"]

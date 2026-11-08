@@ -196,4 +196,13 @@ Firmware debugging: the first USB serial port is the CircuitPython console; Ctrl
 loop is, Ctrl-D reloads. Note this SAMD21 build lacks `str.encode`, `bytes.decode`, `str.partition`
 and `json`.
 
+## Acknowledgments
+
+NeoPulse exists because of [SidePulse](https://sidepulse.io) by Peter Kuhar, whose
+[open-source CLI](https://github.com/inteliwear/sidepulse) (MIT) published the `LEDS.LED` program
+language, the agent state model, the hook integration for Claude Code and Codex, and the
+animations that NeoPulse reproduces so SidePulse files run on this board unchanged. The code here
+is an independent implementation; see [NOTICE](NOTICE) for what derives from SidePulse and for
+their license notice. If you want the finished product that fits a MacBook's SD slot, buy theirs.
+
 MIT license.
