@@ -23,6 +23,8 @@ def main() -> int:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from neopulse import monitor
+        if monitor.is_internal(payload):
+            return 0
         rec = monitor.normalize(provider, payload)
         monitor.append_event(rec)
         if not monitor.daemon_running():

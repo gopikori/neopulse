@@ -90,6 +90,19 @@ def state_for_event(provider: str, event: str, raw: dict) -> State | None | str:
     return None  # SubagentStop and unknown events: leave the session as is
 
 
+INTERNAL_CWD = (str(Path.home() / ".codex"), str(Path.home() / ".claude"))
+
+
+def is_internal(payload: dict) -> bool:
+    """Housekeeping agents the tools spawn for themselves (e.g. Codex memories) work inside their
+    own config directory. They are not sessions the user opened, so they get no pixel."""
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        return False
+    cwd = str(Path(cwd).expanduser())
+    return any(cwd == root or cwd.startswith(root + "/") for root in INTERNAL_CWD)
+
+
 def normalize(provider: str, payload: dict) -> dict:
     event = str(payload.get("hook_event_name") or payload.get("event") or payload.get("type") or "Unknown")
     session = str(payload.get("session_id") or payload.get("thread_id") or payload.get("conversation_id") or "")
@@ -216,6 +229,8 @@ def build_sessions(records: list[dict], now: float | None = None, lanes: int = 4
             continue
         if ev == "Clear":
             sessions.clear()
+            continue
+        if is_internal(r):
             continue
         key = f'{r.get("provider","?")}:{r.get("session","")}'
         st = state_for_event(r.get("provider", "?"), ev, r)

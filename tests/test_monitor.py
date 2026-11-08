@@ -129,3 +129,15 @@ def test_daemon_running_ignores_stale_pid():
     import os
     pid.write_text(str(os.getpid()))
     assert monitor.daemon_running() is True
+
+
+def test_internal_housekeeping_agents_get_no_pixel():
+    from pathlib import Path
+    now = time.time()
+    recs = [ev("codex", "UserPromptSubmit", "main", t=now - 5),
+            {"t": now - 4, "provider": "codex", "event": "PreToolUse", "session": "mem",
+             "cwd": str(Path.home() / ".codex" / "memories"), "tool_name": "apply_patch"}]
+    s = monitor.build_sessions(recs, now)
+    assert list(s) == ["codex:main"] and s["codex:main"].lane == 0
+    assert monitor.is_internal({"cwd": str(Path.home() / ".claude" / "x")})
+    assert not monitor.is_internal({"cwd": str(Path.home() / "work" / ".claude-ish")})
