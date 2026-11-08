@@ -18,19 +18,22 @@ class FileTransport(Transport):
         self.mount = Path(mount)
 
     def _write(self, name: str, text: str) -> None:
+        """Write via a temp file and rename, so the device never reads a half-written program."""
         if not text.endswith("\n"):
             text += "\n"
         path = self.mount / name
+        tmp = self.mount / (name.split(".")[0] + ".TMP")
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
             try:
                 os.write(fd, text.encode())
                 try:
-                    os.fsync(fd)  # push through the OS cache so the device sees it now
+                    os.fsync(fd)
                 except OSError:
                     pass
             finally:
                 os.close(fd)
+            os.replace(tmp, path)
         except OSError as e:
             raise TransportError(f"cannot write {path}: {e}") from e
 

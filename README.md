@@ -100,6 +100,16 @@ Any CircuitPython board with NeoPixels: copy `firmware/boards/profile_generic_st
 `boards/profile.py` on the drive, set the pin and pixel count, done. The host adapts to `leds=N`.
 Boards with more RAM can skip the `.mpy` step and run `neopulse_fw.py` as `code.py`.
 
+## Troubleshooting
+
+- **All four pixels solid white**: CircuitPython is idle, the firmware is not running. Run
+  `neopulse reset` (the daemon also does this automatically) or replug the board.
+- **Nothing lights up after a hook fires**: `neopulse status` shows the sessions it knows about and
+  whether the daemon is running; `~/.local/state/neopulse/monitor.log` has the daemon's view;
+  `neopulse info` reports `bright=` (hold pad 2 or run `neopulse bright 60` if it is low).
+- **Hooks only load when an agent session starts**, so restart Claude Code / Codex after
+  `neopulse hooks install`.
+
 ## Development
 
 ```bash

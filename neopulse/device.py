@@ -115,3 +115,35 @@ def find_serial(explicit: str | None = None) -> str | None:
         if probe_serial(port):
             return port
     return None
+
+
+def console_candidates(data_port: str | None = None) -> list[str]:
+    """Ports that may be the CircuitPython console (everything Adafruit that is not the data port)."""
+    return [p for p in sorted(serial_candidates()) if p != data_port]
+
+
+def soft_reset(data_port: str | None = None, wait: float = 4.0) -> bool:
+    """Restart code.py by sending Ctrl-C, Ctrl-D to the console. Returns True if the data
+    channel answers ping afterwards. Use when the firmware has stopped (solid white pixels)."""
+    try:
+        import serial
+    except ImportError:
+        return False
+    for port in console_candidates(data_port):
+        try:
+            with serial.Serial(port, 115200, timeout=0.2) as s:
+                s.write(b"\x03")
+                time.sleep(0.4)
+                s.write(b"\x03")
+                time.sleep(0.4)
+                s.read(4096)
+                s.write(b"\x04")
+        except Exception:
+            continue
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            time.sleep(0.5)
+            dp = data_port or find_serial()
+            if dp and probe_serial(dp):
+                return True
+    return False

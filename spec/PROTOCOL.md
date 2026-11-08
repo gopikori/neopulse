@@ -12,9 +12,9 @@ sub-100 ms latency, device info and touch events.
 
 | File | Direction | Purpose |
 |---|---|---|
-| `LEDS.LED` | host → device | The current LED program. Rewrite it to change the light. Polled every 250 ms. |
+| `LEDS.LED` | host → device | The current LED program. Rewrite it to change the light. Polled every 250 ms. Write a temp file and rename it over `LEDS.LED` so the device never sees a half-written file (the CLI does this via `LEDS.TMP`). Half-written files (NULs) are ignored; a parse error is reported only when the same bad content is seen on two polls. |
 | `INIT.LED` | host → device | Program run at power-up. Optional. |
-| `STATUS.TXT` | device → host | Device descriptor written at boot: `neopulse=1 fw=0.1.0 board=... leds=4 touch=2 uid=...` |
+| `STATUS.TXT` | device → host | Device descriptor written at boot: `neopulse=1 fw=0.1.1 board=... leds=4 touch=2 uid=...` |
 | `boards/profile.py` | – | Hardware profile (pin, pixel count, touch pins). Edit to port. |
 
 A host must not expect to read `LEDS.LED` back: on CircuitPython the firmware cannot write the
@@ -53,7 +53,7 @@ Commands (host → device) and replies:
 | Command | Reply | Notes |
 |---|---|---|
 | `ping` | `pong` | Use to find the right port. |
-| `info` | `info neopulse=1 fw=.. leds=4 touch=2 bright=60 mute=0 local=1` | |
+| `info` | `info neopulse=1 fw=.. leds=4 touch=2 bright=60 mute=0 local=1 mem=6100` | `mem` is free heap in bytes. |
 | `write <program>` | `ok` or `err parse` | Newlines escaped as the two characters `\n`. |
 | `off` | `ok` | Clear the program. |
 | `bright 0-100` | `ok` | Device brightness, persisted in NVM. |
@@ -71,6 +71,7 @@ evt touch1 hold | evt touch2 hold   first fired after 500 ms
 evt both hold                       both pads held 1.5 s (device flashes white, saves config)
 evt bright <n>                      brightness changed by a pad hold
 evt mute <0|1>
+evt error memory | evt error <text>   the main loop caught an exception and recovered (program dropped)
 ```
 
 ## Touch gestures (Neo Trinkey default profile)
@@ -88,3 +89,13 @@ evt mute <0|1>
 Copy `firmware/boards/profile.py`, set `PIXEL_PIN`, `PIXELS`, `PIXEL_ORDER`, `TOUCH_PINS` (may be
 empty). Boards with more RAM can run `neopulse_fw.py` directly instead of the `.mpy`. The host
 reads `leds=` from `STATUS.TXT` / `info` and lays out lanes accordingly.
+
+## Firmware limits (Neo Trinkey)
+
+The SAMD21 has about 15 KB of heap after CircuitPython boots and roughly 6 KB once the engine
+is loaded, so the firmware never holds a whole program text in memory: it checksums `LEDS.LED`
+line by line and parses straight from the file. If the main loop ever hits `MemoryError` it
+drops the program, emits `evt error memory` and keeps running. Solid white on all pixels means
+CircuitPython itself is idle (code.py is not running): `neopulse reset` sends Ctrl-C, Ctrl-D to
+the console port to restart it, and the daemon does this on its own when the drive is present but
+`ping` goes unanswered.

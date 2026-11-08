@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import __version__, monitor
 from . import program as P
-from .device import find_mount, find_serial, read_status
+from .device import find_mount, find_serial, read_status, soft_reset
 from .paths import firmware_dir, state_dir
 from .states import State, list_profiles, load_profile
 from .transport import TransportError, open_transport
@@ -84,6 +84,11 @@ def cmd_identify(args):
             print(tr.command("identify"))
     except TransportError as e:
         die(str(e))
+
+
+def cmd_reset(args):
+    """Restart the firmware (Ctrl-C/Ctrl-D on the console port)."""
+    print("firmware restarted" if soft_reset() else "could not restart; unplug and replug the board")
 
 
 def cmd_events(args):
@@ -251,12 +256,14 @@ def run_daemon(args):
     print(f"neopulse monitor running (pid {os.getpid()})", flush=True)
     ser = None
     last = 0.0
+    misses = 0
     mode_cycle = ["lane", "unified", "off"]
     try:
         while not stop:
             if ser is None:
                 port = find_serial()
                 if port:
+                    misses = 0
                     try:
                         from .transport.serial import SerialTransport
                         ser = SerialTransport(port)
@@ -264,6 +271,12 @@ def run_daemon(args):
                         print(f"serial {port} connected", flush=True)
                     except TransportError:
                         ser = None
+                else:
+                    misses += 1
+                    if misses == 5 and find_mount():  # drive present but firmware silent: restart it
+                        print("firmware not answering; soft reset", flush=True)
+                        print("restarted" if soft_reset() else "reset failed", flush=True)
+                        misses = 0
             if time.time() - last > 2:
                 last = time.time()
                 try:
@@ -477,6 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("bright", help="set brightness 0-100 (persisted on device)"); p.add_argument("level", type=int)
     p.add_argument("--port"); p.set_defaults(fn=cmd_bright)
     p = sub.add_parser("identify", help="flash white to find the device"); p.add_argument("--port"); p.set_defaults(fn=cmd_identify)
+    p = sub.add_parser("reset", help="restart the firmware if it stopped (solid white pixels)"); p.set_defaults(fn=cmd_reset)
     p = sub.add_parser("events", help="stream touch/device events"); p.add_argument("--port"); p.set_defaults(fn=cmd_events)
     p = sub.add_parser("demo", help="cycle through the states"); dev_opts(p)
     p.add_argument("--seconds", type=float, default=4); p.set_defaults(fn=cmd_demo)

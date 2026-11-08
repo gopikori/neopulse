@@ -1,9 +1,10 @@
 # NeoPulse firmware -- CircuitPython. Drives NeoPixels from a tiny text program.
 # Inputs:  /LEDS.LED (host writes it)   usb_cdc.data serial ("write ...", "info", ...)
 # Outputs: pixels, "evt ..." lines on the data serial (touch, brightness, file status)
-# Spec: spec/PROTOCOL.md in the NeoPulse repo.
+# Spec: spec/PROTOCOL.md.  RAM is scarce (SAMD21): parse line by line, avoid big strings.
 import time
 import math
+import gc
 import supervisor
 import microcontroller
 import neopixel
@@ -11,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.1.0"
+FW = "0.1.1"
 N = PIXELS
 N3 = N * 3
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
@@ -19,11 +20,10 @@ ser = usb_cdc.data
 
 # ---------------- persistent config (NVM: magic, brightness, local-actions) ----------------
 nvm = microcontroller.nvm
-MAGIC = 0x5A
 BRIGHT = 60   # 0..100
-LOCAL = 1     # 1 = touch pads act locally (ack/mute/brightness); 0 = only emit events
+LOCAL = 1     # 1 = taps act on the device (ack/mute); 0 = taps only emit events
 MUTE = 0
-if nvm and nvm[0] == MAGIC:
+if nvm and nvm[0] == 0x5A:
     BRIGHT, LOCAL = nvm[1], nvm[2]
     if BRIGHT > 100:
         BRIGHT = 60
@@ -31,12 +31,12 @@ if nvm and nvm[0] == MAGIC:
 
 def save_cfg():
     try:
-        nvm[0:3] = bytes((MAGIC, BRIGHT, LOCAL))
+        nvm[0:3] = bytes((0x5A, BRIGHT, LOCAL))
     except Exception:
         pass
 
 
-# ---------------- program parser ----------------
+# ---------------- program parser (line oriented) ----------------
 EASE = {"linear": 0, "ease": 1, "ease-in-out": 1, "cosine": 1, "ease-in": 2,
         "ease-out": 3, "pulse": 4, "none": 5}
 HEX = "0123456789abcdef"
@@ -69,78 +69,86 @@ def dur(t):
     return None
 
 
-def parse(text):
-    """Return (steps, repeat, brightness). steps: [(colors|None, ms, ease_or_dir, kind)]
-    kind 0 = color step, 1 = roll. repeat: None=hold last, 0=forever, n=count."""
-    steps = []
-    rep = None
-    bright = None
-    lines = text.replace("\r", "").split("\n")
-    if len(lines) > 24:
-        raise ValueError("too many lines")
-    for ln in lines:
-        ln = ln.strip()
-        if not ln or ln[0] == ";" or ln.startswith("//"):
-            continue
-        if ln[0] == "#" and (len(ln) < 2 or ln[1].lower() not in HEX):
-            continue  # "# comment"
-        toks = ln.lower().split()
-        w = toks[0]
-        if w == "repeat":
-            rep = int(toks[1]) if len(toks) > 1 else 0
-            continue
-        if w == "brightness":
-            bright = max(0, min(100, int(toks[1])))
-            continue
-        if w in ("roll", "roll-right", "roll-left"):
-            d = 330
-            for t in toks[1:]:
-                m = dur(t)
-                if m is not None:
-                    d = m
-            steps.append((None, d, -1 if w == "roll-left" else 1, 1))
-            continue
-        cols = bytearray(N3)
-        ms, ease, pos, idx, has = 330, 0, 0, False, False
-        for t in toks:
-            if t in EASE:
-                ease = EASE[t]
-                continue
+class Prog:
+    def __init__(self):
+        self.steps = []   # (colors|None, ms, ease_or_dir, kind)  kind 0 color, 1 roll
+        self.rep = None   # None hold, 0 forever, n times
+        self.bright = None
+
+
+def parse_line(p, ln):
+    """Add one program line to Prog p. Raises ValueError on bad input."""
+    ln = ln.strip()
+    if not ln or ln[0] == ";" or ln.startswith("//"):
+        return
+    if ln[0] == "#" and (len(ln) < 2 or ln[1].lower() not in HEX):
+        return  # "# comment"
+    toks = ln.lower().split()
+    w = toks[0]
+    if w == "repeat":
+        p.rep = int(toks[1]) if len(toks) > 1 else 0
+        return
+    if w == "brightness":
+        p.bright = max(0, min(100, int(toks[1])))
+        return
+    if len(p.steps) >= 24:
+        raise ValueError("too many steps")
+    if w == "roll" or w == "roll-right" or w == "roll-left":
+        d = 330
+        for t in toks[1:]:
             m = dur(t)
             if m is not None:
-                ms = m
-                continue
-            if ":" in t:
-                i, c = t.split(":", 1)
-                c = color(c)
-                if c is None:
-                    raise ValueError(t)
-                i = int(i)
-                if 0 <= i < N:
-                    cols[i * 3:i * 3 + 3] = bytes(c)
-                idx = has = True
-                continue
-            c = color(t)
+                d = m
+        p.steps.append((None, d, -1 if w == "roll-left" else 1, 1))
+        return
+    cols = bytearray(N3)
+    ms, ease, pos, idx, has = 330, 0, 0, False, False
+    for t in toks:
+        if t in EASE:
+            ease = EASE[t]
+            continue
+        m = dur(t)
+        if m is not None:
+            ms = m
+            continue
+        if ":" in t:
+            i, c = t.split(":", 1)
+            c = color(c)
             if c is None:
                 raise ValueError(t)
-            if pos < N:
-                cols[pos * 3:pos * 3 + 3] = bytes(c)
-            pos += 1
-            has = True
-        if not has:
-            raise ValueError(ln)
-        if not idx and pos < N:  # tile the given colors across the strip
-            for i in range(pos, N):
-                j = (i % pos) * 3
-                cols[i * 3:i * 3 + 3] = cols[j:j + 3]
-        steps.append((cols, max(1, ms), ease, 0))
-    return steps, rep, bright
+            i = int(i)
+            if 0 <= i < N:
+                cols[i * 3:i * 3 + 3] = bytes(c)
+            idx = has = True
+            continue
+        c = color(t)
+        if c is None:
+            raise ValueError(t)
+        if pos < N:
+            cols[pos * 3:pos * 3 + 3] = bytes(c)
+        pos += 1
+        has = True
+    if not has:
+        raise ValueError(ln)
+    if not idx and pos < N:  # tile the given colors across the strip
+        for i in range(pos, N):
+            j = (i % pos) * 3
+            cols[i * 3:i * 3 + 3] = cols[j:j + 3]
+    p.steps.append((cols, max(1, ms), ease, 0))
+
+
+def parse_lines(lines):
+    p = Prog()
+    for ln in lines:
+        parse_line(p, ln)
+    return p
 
 
 # ---------------- animation engine ----------------
 cur = bytearray(N3)    # frame being displayed (before brightness/gamma)
 base = bytearray(N3)   # frame at the start of the current step
-steps, rep, pbright = [], None, None
+tgt = bytearray(N3)    # target of the current step (roll targets are precomputed here)
+prog = Prog()
 si = 0
 loops = 0
 t0 = 0
@@ -151,97 +159,93 @@ def now():
     return supervisor.ticks_ms()
 
 
-def load(prog):
-    global steps, rep, pbright, si, loops, t0, done
-    steps, rep, pbright = prog
+def begin_step():
+    """Prepare tgt for steps[si]."""
+    cols, ms, e, kind = prog.steps[si]
+    if kind == 1:
+        for i in range(N):
+            j = ((i + e) % N) * 3
+            tgt[i * 3:i * 3 + 3] = base[j:j + 3]
+    else:
+        tgt[:] = cols
+
+
+def load(p):
+    global prog, si, loops, t0, done
+    prog = p
     si = loops = 0
     t0 = now()
-    done = not steps
+    done = not p.steps
     base[:] = cur
+    if not done:
+        begin_step()
 
 
 def show():
-    b = BRIGHT * (pbright if pbright is not None else 100)  # 0..10000
+    b = BRIGHT * (prog.bright if prog.bright is not None else 100)  # 0..10000
     if MUTE:
         b = 0
     for i in range(N):
         r, g, bl = cur[i * 3], cur[i * 3 + 1], cur[i * 3 + 2]
-        # gamma ~2.0 then brightness
-        px[i] = ((r * r * b) // 2550000, (g * g * b) // 2550000, (bl * bl * b) // 2550000)
+        # gamma ~2.0 then brightness; pack as int to avoid tuple allocations
+        px[i] = (((r * r * b) // 2550000) << 16) | (((g * g * b) // 2550000) << 8) | ((bl * bl * b) // 2550000)
     px.show()
 
 
-def rotated(src, d):
-    out = bytearray(N3)
-    for i in range(N):
-        j = ((i + d) % N) * 3
-        out[i * 3:i * 3 + 3] = src[j:j + 3]
-    return out
-
-
-def lerp(a, b, g):  # g in 0..1 -> cur
+def lerp(g):  # cur = base + (tgt - base) * g, g in 0..1
     gi = int(g * 1024)
     for k in range(N3):
-        cur[k] = (a[k] * (1024 - gi) + b[k] * gi) >> 10
+        cur[k] = (base[k] * (1024 - gi) + tgt[k] * gi) >> 10
 
 
 def tick():
     global si, loops, t0, done
-    if done or not steps:
+    if done:
         return
-    cols, ms, e, kind = steps[si]
+    cols, ms, e, kind = prog.steps[si]
     el = (now() - t0) & 0x3FFFFFFF
     if el >= ms:
-        # finalize this step
-        if kind == 1:
-            cur[:] = rotated(base, e)
-        elif e == 4:  # pulse returns to base
+        if kind == 0 and e == 4:   # pulse returns to base
             cur[:] = base
         else:
-            cur[:] = cols
+            cur[:] = tgt
         base[:] = cur
         t0 = now()
         si += 1
-        if si >= len(steps):
-            if rep is None:
-                si = len(steps) - 1
+        n = len(prog.steps)
+        if si >= n:
+            if prog.rep is None or (prog.rep and loops + 1 >= prog.rep):
+                si = n - 1
                 done = True
-            elif rep == 0 or loops + 1 < rep:
-                loops += 1
-                si = 0
-            else:
-                si = len(steps) - 1
-                done = True
+                return
+            loops += 1
+            si = 0
+        begin_step()
         return
     f = el / ms
-    if kind == 1:
-        lerp(base, rotated(base, e), f)
-        return
-    if e == 5:
-        cur[:] = cols
+    if kind == 1 or e == 0:
+        lerp(f)
+    elif e == 5:
+        cur[:] = tgt
     elif e == 4:
-        lerp(base, cols, math.sin(math.pi * f))
+        lerp(math.sin(math.pi * f))
     elif e == 2:
-        lerp(base, cols, f * f)
+        lerp(f * f)
     elif e == 3:
-        lerp(base, cols, 1 - (1 - f) * (1 - f))
-    elif e == 1:
-        lerp(base, cols, (1 - math.cos(math.pi * f)) / 2)
+        lerp(1 - (1 - f) * (1 - f))
     else:
-        lerp(base, cols, f)
+        lerp((1 - math.cos(math.pi * f)) / 2)
 
 
 def flash(rgb, times, ms=120):
     """Blocking attention flash (errors / identify)."""
     for _ in range(times):
-        for i in range(N):
-            px[i] = rgb
+        px.fill(rgb)
         px.show()
         time.sleep(ms / 1000)
-        px.fill((0, 0, 0))
+        px.fill(0)
         px.show()
         time.sleep(ms / 1000)
-    base[:] = cur
 
 
 # ---------------- host I/O ----------------
@@ -253,42 +257,109 @@ def emit(s):
             pass
 
 
-def apply_text(text, src):
+def set_off():
+    load(Prog())
+    cur[:] = bytes(N3)
+
+
+last_sum = -1   # checksum of the last applied LEDS.LED
+bad_sum = -1    # checksum of a file that failed once (report only if stable)
+
+
+def file_sum():
+    """Cheap content checksum of /LEDS.LED, or None if absent / half written (NULs)."""
+    s = 0
     try:
-        load(parse(text))
-        emit("evt prog ok " + src)
-        return True
-    except Exception as ex:
-        emit("evt prog err %s %s" % (src, ex))
-        flash((40, 0, 0), 3, 80)
-        return False
-
-
-last_file = None
+        with open("/LEDS.LED", "r") as f:
+            for ln in f:
+                if "\x00" in ln:
+                    return None
+                for ch in ln:
+                    s = (s * 31 + ord(ch)) & 0xFFFFFF
+    except OSError:
+        return None
+    return s
 
 
 def poll_file():
-    global last_file
+    global last_sum, bad_sum
+    s = file_sum()
+    if s is None or s == last_sum:
+        return
+    gc.collect()
     try:
         with open("/LEDS.LED", "r") as f:
-            txt = f.read(600)
-    except OSError:
+            p = parse_lines(f)
+    except Exception as ex:
+        if s == bad_sum:            # same bad content on two polls: it really is bad
+            last_sum = s
+            emit("evt prog err file %s" % ex)
+            flash((40, 0, 0), 3, 80)
+        else:
+            bad_sum = s
         return
-    if txt != last_file:
-        last_file = txt
-        apply_text(txt, "file")
+    bad_sum = -1
+    last_sum = s
+    load(p)
+    emit("evt prog ok file")
 
 
 def info():
-    return "info neopulse=1 fw=%s leds=%d touch=%d bright=%d mute=%d local=%d" % (
-        FW, N, len(TOUCH_PINS), BRIGHT, MUTE, LOCAL)
+    gc.collect()
+    return "info neopulse=1 fw=%s leds=%d touch=%d bright=%d mute=%d local=%d mem=%d" % (
+        FW, N, len(TOUCH_PINS), BRIGHT, MUTE, LOCAL, gc.mem_free())
 
 
 rx = bytearray()
 
 
+def handle(line):
+    global BRIGHT, LOCAL, MUTE
+    parts = line.split(" ", 1)
+    cmd = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+    if cmd == "write":
+        gc.collect()
+        try:
+            p = parse_lines(arg.split("\\n"))
+        except Exception as ex:
+            emit("evt prog err serial %s" % ex)
+            emit("err parse")
+            flash((40, 0, 0), 3, 80)
+            return
+        load(p)
+        emit("evt prog ok serial")
+        emit("ok")
+    elif cmd == "off":
+        set_off()
+        emit("ok")
+    elif cmd == "info":
+        emit(info())
+    elif cmd == "ping":
+        emit("pong")
+    elif cmd == "bright":
+        try:
+            BRIGHT = max(0, min(100, int(arg)))
+            save_cfg()
+            emit("ok")
+        except ValueError:
+            emit("err bright")
+    elif cmd == "mute":
+        MUTE = 1 if arg.strip() == "1" else 0
+        emit("ok")
+    elif cmd == "local":
+        LOCAL = 1 if arg.strip() == "1" else 0
+        save_cfg()
+        emit("ok")
+    elif cmd == "identify":
+        flash((120, 120, 120), 3)
+        emit("ok")
+    else:
+        emit("err unknown " + cmd)
+
+
 def poll_serial():
-    global BRIGHT, LOCAL, MUTE, rx
+    global rx
     if not ser:
         return
     n = ser.in_waiting
@@ -301,44 +372,8 @@ def poll_serial():
             line = str(line, "utf-8").strip()
         except Exception:
             continue
-        if not line:
-            continue
-        parts = line.split(" ", 1)
-        cmd = parts[0]
-        arg = parts[1] if len(parts) > 1 else ""
-        cmd = cmd.lower()
-        if cmd == "write":
-            if apply_text(arg.replace("\\n", "\n"), "serial"):
-                emit("ok")
-            else:
-                emit("err parse")
-        elif cmd == "off":
-            load(([], None, None))
-            cur[:] = bytes(N3)
-            emit("ok")
-        elif cmd == "info":
-            emit(info())
-        elif cmd == "ping":
-            emit("pong")
-        elif cmd == "bright":
-            try:
-                BRIGHT = max(0, min(100, int(arg)))
-                save_cfg()
-                emit("ok")
-            except ValueError:
-                emit("err bright")
-        elif cmd == "mute":
-            MUTE = 1 if arg.strip() == "1" else 0
-            emit("ok")
-        elif cmd == "local":
-            LOCAL = 1 if arg.strip() == "1" else 0
-            save_cfg()
-            emit("ok")
-        elif cmd == "identify":
-            flash((120, 120, 120), 3)
-            emit("ok")
-        else:
-            emit("err unknown " + cmd)
+        if line:
+            handle(line)
     if len(rx) > 700:
         rx = bytearray()
 
@@ -347,23 +382,15 @@ def poll_serial():
 touch = []
 if TOUCH_PINS:
     import touchio
-    for p in TOUCH_PINS:
+    for pin in TOUCH_PINS:
         try:
-            touch.append(touchio.TouchIn(p))
+            touch.append(touchio.TouchIn(pin))
         except Exception:
             pass
-t_down = [0] * len(touch)       # press timestamp or 0
-t_fired = [False] * len(touch)  # hold already fired
-t_last_rep = [0] * len(touch)
-HOLD_MS = 500
-REP_MS = 250
+NT = len(touch)
+t_down = [0] * NT       # press timestamp or 0
+t_hold = [0] * NT       # 0 = no hold yet, else last repeat timestamp
 both_fired = False
-
-
-def set_bright(v):
-    global BRIGHT
-    BRIGHT = max(5, min(100, v))
-    emit("evt bright %d" % BRIGHT)
 
 
 def on_tap(i):
@@ -372,75 +399,80 @@ def on_tap(i):
     if not LOCAL:
         return
     if i == 0:          # ack: clear the light
-        load(([], None, None))
-        cur[:] = bytes(N3)
+        set_off()
     elif i == 1:        # mute toggle
         MUTE = 0 if MUTE else 1
         emit("evt mute %d" % MUTE)
 
 
 def on_hold(i, first):
+    global BRIGHT
     if first:
         emit("evt touch%d hold" % (i + 1))
-    set_bright(BRIGHT + (10 if i == 1 else -10))  # brightness is always local
+    BRIGHT = max(5, min(100, BRIGHT + (10 if i == 1 else -10)))  # always local
+    emit("evt bright %d" % BRIGHT)
 
 
 def poll_touch():
     global both_fired
     t = now()
-    pressed = [tp.value for tp in touch]
-    if len(pressed) >= 2 and pressed[0] and pressed[1]:
-        if t_down[0] and t_down[1] and not both_fired and \
-                t - min(t_down[0], t_down[1]) > 1500:
-            both_fired = True
-            emit("evt both hold")
-            flash((120, 120, 120), 3)
-            save_cfg()
-        for i in range(len(touch)):
-            t_fired[i] = True  # suppress individual taps
-        if not t_down[0]:
-            t_down[0] = t
-        if not t_down[1]:
-            t_down[1] = t
-        return
-    for i, p in enumerate(pressed):
-        if p:
+    any_down = False
+    for i in range(NT):
+        if touch[i].value:
+            any_down = True
             if not t_down[i]:
                 t_down[i] = t
-                t_fired[i] = False
-                t_last_rep[i] = t
-            elif t - t_down[i] >= HOLD_MS and (t - t_last_rep[i] >= REP_MS):
-                on_hold(i, not t_fired[i])
-                t_fired[i] = True
-                t_last_rep[i] = t
+            elif t - t_down[i] >= 500 and t - t_hold[i] >= 250:
+                if not both_fired:
+                    on_hold(i, t_hold[i] == 0)
+                t_hold[i] = t
         elif t_down[i]:
-            if not t_fired[i] and not both_fired:
+            if t_hold[i] == 0 and not both_fired:
                 on_tap(i)
-            if t_fired[i] and both_fired is False and LOCAL:
+            elif t_hold[i]:
                 save_cfg()
-            t_down[i] = 0
-            t_fired[i] = False
-            if not any(pressed):
-                both_fired = False
+            t_down[i] = t_hold[i] = 0
+    if NT >= 2 and t_down[0] and t_down[1] and not both_fired and \
+            t - max(t_down[0], t_down[1]) > 1500:
+        both_fired = True
+        t_hold[0] = t_hold[1] = t  # suppress taps on release
+        emit("evt both hold")
+        flash((120, 120, 120), 3)
+        save_cfg()
+    if not any_down:
+        both_fired = False
 
 
 # ---------------- main ----------------
 try:
     with open("/INIT.LED", "r") as f:
-        apply_text(f.read(600), "init")
-except OSError:
-    load(parse("#102030 1.2s pulse"))  # hello blink
+        load(parse_lines(f))
+    emit("evt prog ok init")
+except Exception:
+    load(parse_lines(["#102030 1.2s pulse"]))  # hello blink
+gc.collect()
 print("neopulse " + info())
 
 last_poll = 0
 while True:
-    t = now()
-    if (t - last_poll) & 0x3FFFFFFF >= 250:
-        last_poll = t
-        poll_file()
-    poll_serial()
-    if touch:
-        poll_touch()
-    tick()
-    show()
-    time.sleep(0.02)
+    try:
+        t = now()
+        if (t - last_poll) & 0x3FFFFFFF >= 250:
+            last_poll = t
+            poll_file()
+        poll_serial()
+        if NT:
+            poll_touch()
+        tick()
+        show()
+        time.sleep(0.02)
+    except MemoryError:
+        set_off()
+        gc.collect()
+        emit("evt error memory")
+        print("MemoryError, recovered")
+    except Exception as ex:
+        gc.collect()
+        emit("evt error %s" % ex)
+        print("loop error:", repr(ex))
+        time.sleep(0.1)
