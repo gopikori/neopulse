@@ -153,7 +153,7 @@ function frame(now) {
     if (s.kind==='roll') {
       if (el >= s.ms) { cur = base.map(c=>[...c]); finish(now); }
       else { const shift = easeF(s.ease, el/s.ms)*4, whole = Math.floor(shift), fr = shift-whole;
-        cur = [0,1,2,3].map(i => { const a = base[((i+s.dir*whole)%4+4)%4], b = base[((i+s.dir*(whole+1))%4+4)%4]; return a.map((v,k)=>v+(b[k]-v)*fr); }); }
+        cur = [0,1,2,3].map(i => { const a = base[((i-s.dir*whole)%4+4)%4], b = base[((i-s.dir*(whole+1))%4+4)%4]; return a.map((v,k)=>v+(b[k]-v)*fr); }); }
     } else {
       if (el >= s.ms) { for (const sg of s.segs) sg.cols.forEach((c,i)=>{ if (c) cur[i] = sg.ease==='pulse' ? [...base[i]] : [...c]; }); finish(now); }
       else for (const sg of s.segs) { const le = el - sg.delay; if (le < 0) continue; const f = le/sg.ms; const g = f>=1 ? (sg.ease==='pulse'?0:1) : easeF(sg.ease, f);

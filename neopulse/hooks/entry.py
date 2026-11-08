@@ -25,7 +25,7 @@ def main() -> int:
         from neopulse import monitor
         rec = monitor.normalize(provider, payload)
         monitor.append_event(rec)
-        if not (monitor.state_dir() / "daemon.pid").exists():
+        if not monitor.daemon_running():
             monitor.refresh()
     except Exception:
         pass

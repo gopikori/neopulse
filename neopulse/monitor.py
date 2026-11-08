@@ -19,8 +19,8 @@ DONE_VISIBLE = 20 * 60
 IDLE_VISIBLE = 5 * 60
 WORKING_STALE = 30 * 60      # a session that stopped sending events while "working" is gone
 WAITING_STALE = 4 * 3600
-TAIL_BYTES = 256 * 1024
-ROTATE_BYTES = 4 * 1024 * 1024
+TAIL_BYTES = 64 * 1024          # history kept after a rotation
+ROTATE_BYTES = 512 * 1024       # rotate (checkpoint live sessions + keep the tail) above this
 
 DEFAULT_CONFIG = {"mode": "unified", "profile": "default", "presence": False,
                   "transport": "auto", "device": None, "port": None, "max_lanes": None}
@@ -37,6 +37,21 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     config_file().write_text(json.dumps(cfg, indent=2) + "\n")
+
+
+def _locked(fn):
+    lock_path = state_dir() / "lock"
+    try:
+        import fcntl
+    except ImportError:
+        return fn()
+    with open(lock_path, "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            return fn()
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
+
 
 
 # ---------------- events ----------------
@@ -85,44 +100,65 @@ def normalize(provider: str, payload: dict) -> dict:
         "session": session or f"{provider}-{os.getppid()}",
         "cwd": payload.get("cwd") or "",
     }
+    if not isinstance(rec["cwd"], str):
+        rec["cwd"] = ""
     for k in ("tool_name", "notification_type", "message", "title", "last_assistant_message",
               "neopulse_state", "state"):
-        if payload.get(k) is not None:
-            v = payload[k]
-            rec[k] = v if not isinstance(v, str) else v[:300]
+        v = payload.get(k)
+        if isinstance(v, str):
+            rec[k] = v[-300:] if k == "last_assistant_message" else v[:300]   # keep the question mark
     return rec
+
+
+def _checkpoint_records(sessions: "dict[str, Session]") -> list[dict]:
+    """Synthetic records that rebuild the live sessions (and their pixel order) after a rotation."""
+    out = []
+    for x in sorted(sessions.values(), key=lambda x: (x.lane is None, x.lane or 0, x.updated)):
+        prov, _, sid = x.key.partition(":")
+        out.append({"t": x.updated, "provider": prov, "event": "Manual", "session": sid,
+                    "cwd": x.cwd, "neopulse_state": x.state.value, "checkpoint": 1})
+    return out
 
 
 def append_event(rec: dict) -> None:
     path = events_file()
-    try:
-        if path.exists() and path.stat().st_size > ROTATE_BYTES:
-            data = path.read_bytes()[-TAIL_BYTES:]
-            path.write_bytes(data[data.find(b"\n") + 1:])
-    except OSError:
-        pass
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+
+    def run():
+        try:
+            if path.exists() and path.stat().st_size > ROTATE_BYTES:
+                live = build_sessions(read_records(), time.time())
+                data = path.read_bytes()[-TAIL_BYTES:]
+                tail = data[data.find(b"\n") + 1:]
+                with open(path, "wb") as f:
+                    for cp in _checkpoint_records(live):
+                        f.write(json.dumps(cp, separators=(",", ":")).encode() + b"\n")
+                    f.write(tail)
+        except (OSError, ValueError):
+            pass
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+
+    _locked(run)
 
 
-def read_tail() -> list[dict]:
-    path = events_file()
+def read_records() -> list[dict]:
+    """All records in the log (it is kept under ROTATE_BYTES, so this is cheap)."""
     try:
-        size = path.stat().st_size
-        with open(path, "rb") as f:
-            if size > TAIL_BYTES:
-                f.seek(size - TAIL_BYTES)
-                f.readline()
-            lines = f.read().decode("utf-8", errors="replace").splitlines()
+        lines = events_file().read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
     out = []
     for ln in lines:
         try:
-            out.append(json.loads(ln))
+            r = json.loads(ln)
         except ValueError:
             continue
+        if isinstance(r, dict) and isinstance(r.get("t"), (int, float)):
+            out.append(r)
     return out
+
+
+read_tail = read_records  # backwards-compatible name
 
 
 # ---------------- sessions ----------------
@@ -190,19 +226,20 @@ def build_sessions(records: list[dict], now: float | None = None, lanes: int = 4
             if key in sessions:
                 sessions[key].updated = t
             continue
+        cwd = r.get("cwd") if isinstance(r.get("cwd"), str) else ""
         x = sessions.get(key)
         if x is None:
-            x = sessions[key] = Session(key, r.get("provider", "?"), st, t, r.get("cwd", ""), lane=free_lane())
+            x = sessions[key] = Session(key, str(r.get("provider", "?")), st, t, cwd, lane=free_lane())
         x.state, x.updated = st, t
-        if r.get("cwd"):
-            x.cwd = r["cwd"]
-        x.label = Path(x.cwd).name if x.cwd else r.get("session", "")[-8:]
+        if cwd:
+            x.cwd = cwd
+        x.label = Path(x.cwd).name if x.cwd else str(r.get("session", ""))[-8:]
     sweep(now)
     return sessions
 
 
 def current_sessions(now: float | None = None, lanes: int = 4) -> dict[str, Session]:
-    return build_sessions(read_tail(), now, lanes)
+    return build_sessions(read_records(), now, lanes)
 
 
 def slots_for(sessions: dict[str, Session], leds: int) -> list[Lane | None]:
@@ -224,22 +261,19 @@ def compute_program(sessions: dict[str, Session], leds: int, cfg: dict | None = 
                   provider=top.provider if top else None)
 
 
+def daemon_running() -> bool:
+    """True if daemon.pid names a live process (a stale file from a crash does not count)."""
+    pid_file = state_dir() / "daemon.pid"
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 # ---------------- refresh (write to device) ----------------
 _LAST = state_dir() / "last_program.txt"
-
-
-def _locked(fn):
-    lock_path = state_dir() / "lock"
-    try:
-        import fcntl
-    except ImportError:
-        return fn()
-    with open(lock_path, "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
-        try:
-            return fn()
-        finally:
-            fcntl.flock(lk, fcntl.LOCK_UN)
 
 
 def refresh(transport=None, force: bool = False, cfg: dict | None = None) -> str | None:

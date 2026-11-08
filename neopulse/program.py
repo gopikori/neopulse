@@ -136,7 +136,7 @@ def parse_segment(text: str, leds: int | None, ln_no: int) -> Segment:
         if ":" in t:
             i, c = t.split(":", 1)
             col = parse_color(c)
-            if col is None or not i.isdigit():
+            if col is None or not i.isdigit() or int(i) > 63:
                 raise ProgramError(f"line {ln_no}: bad indexed color {t!r}")
             indexed[int(i)] = col
             continue
@@ -156,6 +156,8 @@ def parse_segment(text: str, leds: int | None, ln_no: int) -> Segment:
             colors = [positional[i] if i < len(positional) else (0, 0, 0) for i in range(n)]  # rest off
     else:
         n = leds or (max(indexed) + 1)
+        if leds and not any(i < leds for i in indexed):
+            raise ProgramError(f"line {ln_no}: no pixel below {leds} in {text.strip()!r}")
         colors = [indexed.get(i) for i in range(n)]                # unmentioned pixels hold
     if duration is None:
         duration = 330 if (easing is not None or delay) else 16
@@ -178,6 +180,8 @@ def parse(text: str, leds: int | None = None) -> Program:
         toks = low.split()
         w = toks[0]
         if w == "repeat":
+            if not prog.steps or prog.steps[-1].kind == "repeat":
+                raise ProgramError(f"line {ln_no}: repeat with nothing to repeat")
             try:
                 prog.steps.append(Step("repeat", count=int(toks[1]) if len(toks) > 1 else 0))
             except ValueError:
@@ -204,6 +208,8 @@ def parse(text: str, leds: int | None = None) -> Program:
         segs = [parse_segment(part, leds, ln_no) for part in low.split(";") if part.strip()]
         if not segs:
             raise ProgramError(f"line {ln_no}: empty step")
+        if len(segs) > 2 * (leds or 8):
+            raise ProgramError(f"line {ln_no}: too many segments")
         total = max(sg.duration_ms + sg.delay_ms for sg in segs)
         prog.steps.append(Step("color", segs, total, segs[0].easing))
     return prog

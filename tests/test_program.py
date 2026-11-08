@@ -69,3 +69,14 @@ def test_animation_library_fits_every_size():
             err = P.validate(text, leds)
             assert err is None, (name, leds, err)
             assert len(text.encode()) <= P.MAX_BYTES, (name, leds, len(text.encode()))
+
+
+def test_parser_caps_and_alignment_with_firmware():
+    assert P.validate("999999999:#fff") is not None            # index cap
+    assert P.validate("4:#f00", leds=4) is not None            # nothing below the pixel count
+    assert P.validate("repeat") is not None                    # nothing to repeat
+    assert P.validate("#f00\nrepeat\nrepeat 3") is not None    # empty block
+    assert P.validate(";".join(["0:off"] * 12), leds=4) is not None
+    assert P.validate("#f00 1:#0f0") is not None               # mixed positional/indexed
+    assert P.validate("#f00 #0f0\nroll garbage") is not None
+    assert P.validate("#f00 100ms\nrepeat 2\n#0f0 100ms", leds=4) is None

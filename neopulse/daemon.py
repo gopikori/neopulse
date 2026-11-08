@@ -30,6 +30,7 @@ class Daemon:
         self.listeners: list[Callable[[str], None]] = []   # called with every "evt ..." line
         self.pid_file = state_dir() / "daemon.pid"
         self._stop = threading.Event()
+        self.io = threading.RLock()   # serial port is used from the loop thread and UI callbacks
 
     # ---------- lifecycle ----------
     def start(self) -> None:
@@ -53,8 +54,9 @@ class Daemon:
             self.misses = 0
             try:
                 from .transport.serial import SerialTransport
-                self.ser = SerialTransport(port)
-                self.ser.command("local 0")  # we own the tap gestures
+                with self.io:
+                    self.ser = SerialTransport(port)
+                    self.ser.command("local 0")  # we own the tap gestures
                 self.log(f"serial {port} connected")
                 self.publish_info()
             except TransportError:
@@ -70,7 +72,8 @@ class Daemon:
         if self.ser is None:
             return
         try:
-            i = self.ser.info()
+            with self.io:
+                i = self.ser.info()
             if i:
                 d = dict(i.extra)
                 d["t"] = time.time()
@@ -106,7 +109,8 @@ class Daemon:
         if indicate and self.ser is not None:
             n = MODE_CYCLE.index(mode) + 1
             try:
-                self.ser.write(" ".join(f"{i}:#ffffff" for i in range(n)) + " 1ms none")
+                with self.io:
+                    self.ser.write(" ".join(f"{i}:#ffffff" for i in range(n)) + " 1ms none")
                 time.sleep(0.8)
             except TransportError:
                 pass
@@ -122,9 +126,10 @@ class Daemon:
         """Send a device command (bright, mute, identify) over serial, or via the drive."""
         if self.ser is not None:
             try:
-                r = self.ser.command(line)
-                if line.startswith(("bright", "mute")):
-                    self.publish_info()
+                with self.io:
+                    r = self.ser.command(line)
+                    if line.startswith(("bright", "mute")):
+                        self.publish_info()
                 return r
             except TransportError as e:
                 self.log(f"serial lost: {e}")
@@ -164,7 +169,9 @@ class Daemon:
             time.sleep(min(1.0, read_events_for))
             return
         try:
-            for ev in self.ser.events(idle_timeout=read_events_for):
+            with self.io:   # UI callbacks wait at most read_events_for before they get the port
+                evs = list(self.ser.events(idle_timeout=read_events_for))
+            for ev in evs:
                 self.handle_event(ev)
         except Exception as e:
             self.log(f"serial lost: {e}")

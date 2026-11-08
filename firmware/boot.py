@@ -7,7 +7,7 @@ import usb_cdc
 import board
 import microcontroller
 
-FW = "0.2.0"
+FW = "0.2.1"
 
 try:
     from boards.profile import PIXELS, TOUCH_PINS  # board profile

@@ -12,12 +12,14 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.2.0"
+FW = "0.2.1"
 N = PIXELS
 N3 = N * 3
 ALL = (1 << N) - 1
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
 ser = usb_cdc.data
+if ser:
+    ser.write_timeout = 0   # drop output rather than stall animations when the host is not reading
 
 # ---------------- persistent config (NVM: magic, brightness, local-actions) ----------------
 nvm = microcontroller.nvm
@@ -114,6 +116,8 @@ def parse_segment(text):
         if pos < N:
             cols[pos * 3:pos * 3 + 3] = bytes(c)
         pos += 1
+    if pos and mask:
+        raise ValueError("mixed")
     if pos:                     # positional: given LEDs set, the rest turn off
         mask = ALL
         if pos == 1:            # a single color means all LEDs
@@ -154,12 +158,16 @@ def parse_line(p, ln):
                 d = m
             elif t in EASE:
                 e = EASE[t]
+            else:
+                raise ValueError(t)
         p.steps.append((1, d, e, -1 if w == "roll-left" else 1))
         return
     segs = []
     total = 1
     for part in low.split(";"):
         if part.strip():
+            if len(segs) >= 2 * N:
+                raise ValueError("too many segments")
             s = parse_segment(part)
             segs.append(s)
             total = max(total, s[2] + s[4])
@@ -189,6 +197,10 @@ def now():
     return supervisor.ticks_ms()
 
 
+def since(t):
+    return (supervisor.ticks_ms() - t) & 0x1FFFFFFF
+
+
 def load(p):
     global prog, si, t0, done, loops
     prog = p
@@ -216,10 +228,12 @@ def skip_markers():
             if prog.steps[j][0] == 2:
                 start = j + 1
                 break
+        if start == si:                   # empty block: nothing to repeat, pass through
+            loops = -1
+            si += 1
+            continue
         if count == 0:
             si = start
-            if start == si and prog.steps[start][0] == 2:
-                done = True
             continue
         if loops < 0:
             loops = count - 1
@@ -256,7 +270,7 @@ def tick():
     if done:
         return
     st = prog.steps[si]
-    el = (now() - t0) & 0x3FFFFFFF
+    el = since(t0)
     if st[0] == 1:                         # roll: one full wraparound over dur
         d, e, direction = st[1], st[2], st[3]
         if el >= d:
@@ -267,8 +281,8 @@ def tick():
         whole = int(shift)
         frac = shift - whole
         for i in range(N):
-            a = ((i + direction * whole) % N) * 3
-            b = ((i + direction * (whole + 1)) % N) * 3
+            a = ((i - direction * whole) % N) * 3
+            b = ((i - direction * (whole + 1)) % N) * 3
             gi = int(frac * 1024)
             for k in range(3):
                 cur[i * 3 + k] = (base[a + k] * (1024 - gi) + base[b + k] * gi) >> 10
@@ -393,15 +407,18 @@ def poll_cmd():
     if s is None or s == last_cmd:
         return
     last_cmd = s
-    quiet = 1
+    lines = []
     try:
-        with open("/CMD.TXT", "r") as f:
+        with open("/CMD.TXT", "r") as f:   # read first, close, then run: NVM writes fail while a file is open
             for ln in f:
                 ln = ln.strip()
-                if ln and ln[0] != "#":
-                    handle(ln)
+                if ln and ln[0] != "#" and len(lines) < 8:
+                    lines.append(ln)
     except OSError:
-        pass
+        return
+    quiet = 1
+    for ln in lines:
+        handle(ln)
     quiet = 0
 
 
@@ -531,7 +548,7 @@ def poll_touch():
             any_down = True
             if not t_down[i]:
                 t_down[i] = t
-            elif t - t_down[i] >= 500 and t - t_hold[i] >= 250:
+            elif since(t_down[i]) >= 500 and since(t_hold[i]) >= 250:
                 if not both_fired:
                     on_hold(i, t_hold[i] == 0)
                 t_hold[i] = t
@@ -542,7 +559,7 @@ def poll_touch():
                 save_cfg()
             t_down[i] = t_hold[i] = 0
     if NT >= 2 and t_down[0] and t_down[1] and not both_fired and \
-            t - max(t_down[0], t_down[1]) > 1500:
+            since(max(t_down[0], t_down[1])) > 1500:
         both_fired = True
         t_hold[0] = t_hold[1] = t
         emit("evt both hold")
@@ -568,7 +585,7 @@ odd = 0
 while True:
     try:
         t = now()
-        if (t - last_poll) & 0x3FFFFFFF >= 250:
+        if since(last_poll) >= 250:
             last_poll = t
             poll_file()
             odd ^= 1

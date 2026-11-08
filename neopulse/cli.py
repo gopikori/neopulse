@@ -81,7 +81,7 @@ def cmd_bright(args):
         info = last_device_info()
         if "bright" in info:
             print(f"brightness {info['bright']} (2-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
-        elif (state_dir() / "daemon.pid").exists():
+        elif monitor.daemon_running():
             print("brightness unknown yet (daemon just started; retry in a few seconds)")
         else:
             try:
@@ -112,7 +112,7 @@ def cmd_identify(args):
 
 def cmd_reset(args):
     """Restart the firmware (Ctrl-C/Ctrl-D on the console port)."""
-    if (state_dir() / "daemon.pid").exists():
+    if monitor.daemon_running():
         # the daemon holds the data port, so we cannot ping; just send the keystrokes
         ok = soft_reset(verify=False)
         print("restart sent; the daemon reconnects within a few seconds" if ok else "could not reach the console port; unplug and replug the board")
@@ -182,16 +182,17 @@ def cmd_clear(args):
 
 def cmd_status(args):
     m = find_mount()
-    pid = state_dir() / "daemon.pid"
-    port = None if (args.no_serial or pid.exists()) else find_serial()
+    running = monitor.daemon_running()
+    port = None if (args.no_serial or running) else find_serial()
     info = read_status(m) if m else None
     print(f"drive    {m or '-'}")
-    print(f"serial   {port or ('in use by daemon' if pid.exists() else '-')}")
+    print(f"serial   {port or ('in use by daemon' if running else '-')}")
     if info:
         print(f"device   {info.board} fw={info.fw} leds={info.leds} touch={info.touch}")
     cfg = monitor.load_config()
     print(f"mode     {cfg['mode']}  profile={cfg['profile']}  presence={cfg['presence']}")
-    print(f"daemon   {'running pid ' + pid.read_text().strip() if pid.exists() else 'not running'}")
+    pid = state_dir() / "daemon.pid"
+    print(f"daemon   {'running pid ' + pid.read_text().strip() if running else 'not running'}")
     from .hooks import PROVIDERS, get
     for p in PROVIDERS:
         try:
@@ -305,22 +306,18 @@ def install_service() -> str:
     exe = shutil.which("neopulse") or f"{sys.executable} -m neopulse.cli"
     log = state_dir() / "monitor.log"
     if sys.platform == "darwin":
+        import plistlib
         p = _launch_agent_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         sub = ["menubar"] if menubar_available() else ["monitor", "run"]
-        args_xml = "".join(f"<string>{a}</string>" for a in exe.split() + sub)
-        p.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>io.neopulse.monitor</string>
-  <key>ProgramArguments</key><array>{args_xml}</array>
-  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>{log}</string><key>StandardErrorPath</key><string>{log}</string>
-</dict></plist>
-""")
-        os.system(f"launchctl unload '{p}' >/dev/null 2>&1; launchctl load '{p}'")
+        argv = ([exe] if shutil.which("neopulse") else [sys.executable, "-m", "neopulse.cli"]) + sub
+        with open(p, "wb") as f:
+            plistlib.dump({"Label": "io.neopulse.monitor", "ProgramArguments": argv, "RunAtLoad": True,
+                           "KeepAlive": {"SuccessfulExit": False},   # restart after a crash, not after Quit
+                           "StandardOutPath": str(log), "StandardErrorPath": str(log)}, f)
+        rc = os.system(f"launchctl unload '{p}' >/dev/null 2>&1; launchctl load '{p}'")
         what = "menu-bar app" if sub == ["menubar"] else "headless monitor (pip install 'neopulse[mac]' for the menu-bar app)"
-        return f"installed and started LaunchAgent {p} running the {what} (log: {log})"
+        return f"installed and started LaunchAgent {p} running the {what} (log: {log})" + ("" if rc == 0 else " -- launchctl load failed")
     if sys.platform.startswith("linux"):
         p = _systemd_path()
         p.parent.mkdir(parents=True, exist_ok=True)

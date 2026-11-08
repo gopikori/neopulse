@@ -94,3 +94,38 @@ def test_expired_pixel_is_reused_by_later_session():
             ev("codex", "UserPromptSubmit", "new", t=now - 10)]
     s = monitor.build_sessions(recs, now)
     assert list(s) == ["codex:new"] and s["codex:new"].lane == 0
+
+
+def test_malformed_records_are_skipped_and_question_suffix_kept():
+    now = time.time()
+    recs = [{"t": now - 5, "provider": "claude", "event": "PreToolUse", "session": "s", "cwd": ["/tmp"]},
+            "garbage", {"t": "x"}, ev("claude", "Stop", "s", t=now - 2, last_assistant_message="x" * 400 + " Continue?")]
+    recs = [r for r in recs if isinstance(r, dict) and isinstance(r.get("t"), (int, float))]
+    s = monitor.build_sessions(recs, now)
+    assert s["claude:s"].cwd == "/w/proj" and s["claude:s"].state == State.WAITING   # list cwd ignored, later str kept
+    rec = monitor.normalize("claude", {"hook_event_name": "Stop", "session_id": "s", "cwd": ["/tmp"],
+                                       "last_assistant_message": "y" * 400 + " Continue?"})
+    assert rec["cwd"] == "" and rec["last_assistant_message"].endswith("Continue?")
+
+
+def test_rotation_keeps_live_sessions_and_pixels(monkeypatch):
+    monkeypatch.setattr(monitor, "ROTATE_BYTES", 2000)
+    monkeypatch.setattr(monitor, "TAIL_BYTES", 300)
+    now = time.time()
+    monitor.append_event(ev("claude", "UserPromptSubmit", "a", t=now - 100))
+    monitor.append_event(ev("codex", "PermissionRequest", "b", t=now - 90))
+    for i in range(40):                                   # heavy traffic from a third session
+        monitor.append_event(ev("claude", "PreToolUse", "c", t=now - 80 + i, tool_name="Bash" * 20))
+    s = monitor.current_sessions(now)
+    assert s["claude:a"].lane == 0 and s["codex:b"].lane == 1 and s["codex:b"].state == State.WAITING
+    assert s["claude:c"].lane == 2
+    assert monitor.events_file().stat().st_size < 4000      # rotated, not grown without bound
+
+
+def test_daemon_running_ignores_stale_pid():
+    pid = monitor.state_dir() / "daemon.pid"
+    pid.write_text("999999")
+    assert monitor.daemon_running() is False
+    import os
+    pid.write_text(str(os.getpid()))
+    assert monitor.daemon_running() is True

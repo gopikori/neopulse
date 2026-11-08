@@ -36,14 +36,21 @@ def _strip_block(text: str) -> str:
     return re.sub(re.escape(START) + r".*?" + re.escape(END) + r"\n?", "", text, flags=re.S)
 
 
+FEATURES_RE = r"^[ \t]*\[features\][ \t]*(#.*)?$"
+
+
 def _ensure_feature(text: str) -> str:
-    if re.search(r"^\s*\[features\]\s*$", text, re.M):
-        m = re.search(r"^\s*\[features\]\s*$", text, re.M)
+    if re.search(r"^[ \t]*features[ \t]*=", text, re.M):      # inline table: features = { ... }
+        if re.search(r"^[ \t]*features[ \t]*=[ \t]*\{[^}]*\bhooks[ \t]*=", text, re.M):
+            return re.sub(r"(^[ \t]*features[ \t]*=[ \t]*\{[^}]*\bhooks[ \t]*=[ \t]*)\w+", r"\1true", text, count=1, flags=re.M)
+        return re.sub(r"^([ \t]*features[ \t]*=[ \t]*\{)", r"\1 hooks = true,", text, count=1, flags=re.M)
+    if re.search(FEATURES_RE, text, re.M):
+        m = re.search(FEATURES_RE, text, re.M)
         rest = text[m.end():]
-        nxt = re.search(r"^\s*\[", rest, re.M)
+        nxt = re.search(r"^[ \t]*\[", rest, re.M)
         section = rest[: nxt.start()] if nxt else rest
-        if re.search(r"^\s*hooks\s*=", section, re.M):
-            section2 = re.sub(r"^\s*hooks\s*=.*$", "hooks = true", section, flags=re.M)
+        if re.search(r"^[ \t]*hooks[ \t]*=", section, re.M):
+            section2 = re.sub(r"^[ \t]*hooks[ \t]*=.*$", "hooks = true", section, flags=re.M)
             return text[: m.end()] + section2 + (rest[nxt.start():] if nxt else "")
         return text[: m.end()] + "\nhooks = true" + rest
     return text.rstrip("\n") + "\n\n[features]\nhooks = true\n"
@@ -59,10 +66,22 @@ def _save(path: Path, text: str) -> Path | None:
     return backup
 
 
+def _check_toml(text: str, path: Path) -> None:
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10: no validator available
+        return
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise RuntimeError(f"refusing to write {path}: result would not be valid TOML ({e})")
+
+
 def install(base: Path | None = None, dry_run: bool = False) -> str:
     path = config_path(base)
     orig = path.read_text() if path.exists() else ""
     text = _ensure_feature(_strip_block(orig)).rstrip("\n") + "\n\n" + _block()
+    _check_toml(text, path)
     if dry_run:
         return _block()
     backup = _save(path, text)
@@ -95,46 +114,29 @@ def _trust_hooks(config: Path, timeout: float = 8.0) -> int:
     codex = shutil.which("codex")
     if not codex:
         return 0
-    try:
-        proc = subprocess.Popen([codex, "app-server", "--stdio"], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    req = "\n".join(json.dumps(m) for m in (
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"clientInfo": {"name": "neopulse", "version": "0"}, "capabilities": None}},
+        {"jsonrpc": "2.0", "id": 2, "method": "hooks/list", "params": {"cwds": [str(Path.home())]}},
+    )) + "\n"
+    try:  # bounded: run() kills the child on timeout and still hands us the output so far
+        out = subprocess.run([codex, "app-server", "--stdio"], input=req, capture_output=True,
+                             text=True, timeout=timeout).stdout
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
     except OSError:
         return 0
     hashes: dict[str, str] = {}
-    try:
-        def send(obj):
-            proc.stdin.write(json.dumps(obj) + "\n")
-            proc.stdin.flush()
-
-        def wait(mid):
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                line = proc.stdout.readline()
-                if not line:
-                    return None
-                try:
-                    msg = json.loads(line)
-                except ValueError:
-                    continue
-                if msg.get("id") == mid:
-                    return msg
-            return None
-        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-              "params": {"clientInfo": {"name": "neopulse", "version": "0"}, "capabilities": None}})
-        wait(1)
-        send({"jsonrpc": "2.0", "id": 2, "method": "hooks/list", "params": {"cwds": [str(Path.home())]}})
-        resp = wait(2) or {}
-        for h in (resp.get("result", {}).get("data") or [{}])[0].get("hooks", []):
+    for line in out.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if msg.get("id") != 2:
+            continue
+        for h in (msg.get("result", {}).get("data") or [{}])[0].get("hooks", []):
             if isinstance(h, dict) and is_ours(str(h.get("command", ""))) and h.get("currentHash") and h.get("key"):
                 hashes[h["key"]] = h["currentHash"]
-    except Exception:
-        return 0
-    finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=2)
-        except Exception:
-            proc.kill()
     if not hashes:
         return 0
     text = config.read_text()
