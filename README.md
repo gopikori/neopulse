@@ -9,28 +9,46 @@ without looking at the terminal.
 
 ## How to read it
 
-**Each pixel is one agent session.** When a Claude Code or Codex session starts, it takes the
-lowest free pixel (0, then 1, 2, 3, clockwise) and keeps it until the session ends. The color
-and motion of that pixel is that agent's state. Nothing is grouped and nothing is summarized.
-Four sessions fill the board; a fifth waits for a free pixel.
+**Default: one light.** All four pixels show the single most urgent state across every agent
+session, exactly like a SidePulse. If any agent needs you, the board pulses amber, whatever
+the others are doing. Priority: blocked > needs you > working > done > idle.
 
-![Worked examples: one agent working, a second agent needing you, three agents, unified mode](docs/scenarios.svg)
+| State | Animation (default profile) | Color |
+|---|---|---|
+| working / tool running | `roll`: pulses travelling across the pixels | cyan Claude, violet Codex |
+| needs you | `attention`: whole board breathing from dark | amber |
+| blocked / error | `kitt`: fast scanner sweeping out and back | red |
+| done | `complete`: fade to solid, held 20 min or until pad 1 | green |
+| idle | off (or `idle-pulse` dim glow with `neopulse presence on`) | – |
 
-![What one pixel means: working breathes cyan or violet, needs-you double-pulses amber, blocked blinks red, done is solid green](docs/states.svg)
+Animations are named and swappable per state in a profile (`neopulse profile show default`).
+Available: `roll`, `tide`, `kitt`, `night-rider`, `attention`, `breathe`, `chase`, `blink`,
+`complete`, `idle-pulse`, `fill-in`, `rainbow`. SidePulse's own `.LED` files also run unchanged.
 
-Prefer one big indicator? Tap pad 2 (or `neopulse mode unified`) and all four pixels show the
-single most urgent state, SidePulse style. Tap again for off, again for back to one-per-agent.
+![What one pixel means in per-agent layout](docs/states.svg)
 
-`neopulse status` prints which pixel each session owns:
+**Optional: one pixel per agent.** Tap pad 2 (or `neopulse mode lane`) and each session takes
+the lowest free pixel when it starts and keeps it until it ends. Color and motion of that pixel
+is that agent's state. Four sessions fill the board. Tap pad 2 again for off, again for back to
+one light. The daemon flashes 1, 2 or 3 white pixels to tell you which layout you landed on.
 
-```
-sessions 2   (one pixel per session; pixel 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left)
-  pixel 0   working  claude  my-api        3s ago
-  pixel 1   waiting  codex   frontend     41s ago
-```
+![Worked examples of the per-agent layout](docs/scenarios.svg)
 
-Try it without hardware: open [docs/simulator.html](docs/simulator.html) in a browser
+`neopulse status` lists sessions and, in per-agent layout, who owns which pixel. Try either
+layout without hardware in [docs/simulator.html](docs/simulator.html)
 (or the [live copy](https://htmlpreview.github.io/?https://github.com/gopikori/neopulse/blob/main/docs/simulator.html)).
+
+## Menu-bar app (macOS)
+
+![menu bar](docs/menubar.svg)
+
+`pip install -e '.[mac]'` then `neopulse menubar` (or `neopulse setup`, which installs it as a
+login item when rumps is present). The icon is the most urgent state: 🔵 working, 🟡 needs you,
+🔴 blocked, 🟢 done, with a count when more than one agent is active. The menu lists every
+session with its state, provider and folder (open it in Terminal or Finder), and offers
+acknowledge, layout, brightness, color profile, pause, and a native notification whenever an
+agent starts needing you. The menu-bar app is the daemon: it owns the serial port, so run either
+it or `neopulse monitor run`, not both.
 
 ### Pixels and pads
 
@@ -54,13 +72,12 @@ the numbers printed on the board.
 
 | State | Pattern | Color |
 |---|---|---|
-| working / tool running | slow breathe (chase in unified) | cyan `#00e5ff` Claude, violet `#7c5cff` Codex |
+| working / tool running | slow breathe | cyan `#00e5ff` Claude, violet `#7c5cff` Codex |
 | needs you | fast double pulse | amber `#ffb000` |
 | blocked / error | double blink | red `#ff2a2a` |
 | done | solid, fades after 20 min or when you tap pad 1 | green `#30d158` |
 | idle | off (or a dim glow with `neopulse presence on`) | – |
 
-Unified mode picks the most urgent state: blocked > needs you > working > done > idle.
 Colors come from a JSON profile (`neopulse profile list`); `ember` and `mono` are included.
 
 ## Install
@@ -156,9 +173,9 @@ Boards with more RAM can skip the `.mpy` step and run `neopulse_fw.py` as `code.
 - **Nothing lights up after a hook fires**: `neopulse status` shows the sessions it knows about and
   whether the daemon is running; `~/.local/state/neopulse/monitor.log` has the daemon's view;
   `neopulse info` reports `bright=` (hold pad 2 or run `neopulse bright 60` if it is low).
-- **All pixels off, no white**: the layout is probably `off` (tapping pad 2 cycles lane, unified,
+- **All pixels off, no white**: the layout is probably `off` (tapping pad 2 cycles one light, per-agent,
   off; the daemon flashes 1, 2 or 3 white pixels to show which one you landed on) or brightness is
-  at the floor. `neopulse mode lane` and `neopulse bright 60` bring it back. The reset button
+  at the floor. `neopulse mode unified` and `neopulse bright 60` bring it back. The reset button
   restarts the firmware but does not change these, since they live on the host and in device NVM.
 - **Hooks only load when an agent session starts**, so restart Claude Code / Codex after
   `neopulse hooks install`.

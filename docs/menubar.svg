@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="372" viewBox="0 0 560 372" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="560" height="372" fill="#0f1115"/>
+  <!-- menu bar strip -->
+  <rect x="0" y="0" width="560" height="26" fill="#1c1f26"/>
+  <text x="430" y="18" fill="#e6e6e6">🟡 2</text>
+  <text x="470" y="18" fill="#9aa3ad">Wi‑Fi  14:32</text>
+  <!-- dropdown -->
+  <rect x="250" y="28" width="300" height="336" rx="10" fill="#22262e" stroke="#343946"/>
+  <g fill="#e6e6e6">
+    <text x="266" y="52" font-weight="600">NeoPulse: 2 sessions</text>
+    <line x1="258" y1="62" x2="542" y2="62" stroke="#343946"/>
+    <text x="266" y="84">🟡 needs you   codex    frontend   (41s) ▸</text>
+    <text x="266" y="106">🔵 working     claude   my-api     (3s) ▸</text>
+    <line x1="258" y1="118" x2="542" y2="118" stroke="#343946"/>
+    <text x="266" y="140">Acknowledge (clear done / needs you)</text>
+    <text x="266" y="162">Layout ▸</text>
+    <text x="266" y="184">Brightness ▸</text>
+    <text x="266" y="206">Colors ▸</text>
+    <text x="266" y="228">Pause light</text>
+    <text x="266" y="250">✓ Notify when an agent needs me</text>
+    <line x1="258" y1="262" x2="542" y2="262" stroke="#343946"/>
+    <text x="266" y="284">Find my device (flash white)</text>
+    <text x="266" y="306" fill="#9aa3ad">device: fw 0.2.0, 4 pixels, brightness 60%</text>
+    <line x1="258" y1="318" x2="542" y2="318" stroke="#343946"/>
+    <text x="266" y="342">Quit NeoPulse 0.2.0</text>
+  </g>
+  <!-- submenu for a session -->
+  <rect x="20" y="70" width="220" height="60" rx="8" fill="#22262e" stroke="#343946"/>
+  <text x="34" y="94" fill="#e6e6e6">Open in Terminal</text>
+  <text x="34" y="116" fill="#e6e6e6">Reveal folder in Finder</text>
+  <path d="M240 86 L250 86" stroke="#343946"/>
+  <text x="20" y="160" fill="#9aa3ad" font-size="12">Icon = most urgent state (🔵 working, 🟡 needs you,</text>
+  <text x="20" y="178" fill="#9aa3ad" font-size="12">🔴 blocked, 🟢 done) plus the count of active agents.</text>
+</svg>

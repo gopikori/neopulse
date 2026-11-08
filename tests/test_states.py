@@ -32,7 +32,7 @@ def test_each_pixel_is_one_session():
     assert k1[2] == (0, 0, 0)                           # pixel 2 = nobody
     assert k1[3] == prof.color(State.DONE)              # pixel 3 = done, solid
     assert k1[0] != (0, 0, 0) and k1[0][1] > 0          # pixel 0 = claude working (cyan, breathing)
-    assert all(st.colors[2] == (0, 0, 0) for st in prog.steps)
+    assert all(st.colors[2] == (0, 0, 0) for st in prog.steps if st.kind == "color")
 
 
 def test_unified_and_off():

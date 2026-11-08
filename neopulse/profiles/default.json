@@ -9,8 +9,21 @@
     "idle": "#000000"
   },
   "provider_tint": {
-    "claude": { "working": "#00e5ff", "done": "#30d158" },
-    "codex":  { "working": "#7c5cff", "done": "#30d158" }
+    "claude": {
+      "working": "#00e5ff",
+      "done": "#30d158"
+    },
+    "codex": {
+      "working": "#7c5cff",
+      "done": "#30d158"
+    }
   },
-  "presence": "#040608"
+  "presence": "#040608",
+  "animations": {
+    "working": "roll",
+    "waiting": "attention",
+    "blocked": "kitt",
+    "done": "complete",
+    "idle": "idle-pulse"
+  }
 }

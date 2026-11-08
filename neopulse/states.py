@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 
 from . import program as P
+from . import animations as A
 from .program import RGB, parse_color, rgb_hex, scale
 
 
@@ -35,6 +36,10 @@ def aggregate(states: list[State]) -> State | None:
     return min(states, key=rank) if states else None
 
 
+DEFAULT_ANIMATIONS = {"working": "roll", "waiting": "attention", "blocked": "kitt",
+                      "done": "complete", "idle": "idle-pulse"}
+
+
 @dataclass
 class Profile:
     name: str
@@ -42,6 +47,10 @@ class Profile:
     provider_tint: dict[str, dict[str, RGB]] = field(default_factory=dict)
     presence: RGB | None = None
     description: str = ""
+    animations: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ANIMATIONS))
+
+    def animation(self, state: "State") -> str:
+        return self.animations.get(state.value, DEFAULT_ANIMATIONS[state.value])
 
     def color(self, state: State, provider: str | None = None) -> RGB:
         if provider and state.value in self.provider_tint.get(provider, {}):
@@ -55,9 +64,11 @@ class Profile:
             return col if col is not None else (0, 0, 0)
         tint = {p: {k: c(v) for k, v in m.items()} for p, m in d.get("provider_tint", {}).items()}
         pres = d.get("presence")
+        anims = dict(DEFAULT_ANIMATIONS)
+        anims.update({k: v for k, v in d.get("animations", {}).items() if v in A.ANIMATIONS})
         return cls(name=d.get("name", "custom"), colors={k: c(v) for k, v in d["colors"].items()},
                    provider_tint=tint, presence=c(pres) if pres else None,
-                   description=d.get("description", ""))
+                   description=d.get("description", ""), animations=anims)
 
 
 def builtin_profile_dir() -> Path:
@@ -147,16 +158,12 @@ def _short_hex(c: RGB) -> str:
 # ---------------- unified layout: native animations ----------------
 def render_unified(agg: State | None, leds: int, profile: Profile, provider: str | None = None,
                    presence: bool = False) -> str:
+    """Every pixel shows the one most urgent state, using the profile's named animation."""
     if agg is None or agg == State.IDLE:
-        return P.solid(profile.presence, 800) if presence and profile.presence else P.OFF
-    col = profile.color(agg, provider)
-    if agg == State.WORKING:
-        return P.chase(col, leds, step_ms=140, tail=0.3)
-    if agg == State.WAITING:
-        return P.pulse(col, period_ms=700)
-    if agg == State.BLOCKED:
-        return P.blink(col, on_ms=100, off_ms=120, count=2, gap_ms=800)
-    return P.solid(col, 400)  # DONE
+        if presence and profile.presence:
+            return A.build(profile.animation(State.IDLE), profile.presence, leds)
+        return P.OFF
+    return A.build(profile.animation(agg), profile.color(agg, provider), leds)
 
 
 def render(mode: str, agg: State | None, slots: list[Lane | None], leds: int, profile: Profile,

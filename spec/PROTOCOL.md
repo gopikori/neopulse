@@ -15,7 +15,7 @@ sub-100 ms latency, device info and touch events.
 | `LEDS.LED` | host → device | The current LED program. Rewrite it to change the light. Polled every 250 ms. Write a temp file and rename it over `LEDS.LED` so the device never sees a half-written file (the CLI does this via `LEDS.TMP`). Half-written files (NULs) are ignored; a parse error is reported only when the same bad content is seen on two polls. |
 | `INIT.LED` | host → device | Program run at power-up. Optional. |
 | `CMD.TXT` | host → device | Any serial command (below), one per line, for hosts without serial or when a daemon holds the port. Polled every 500 ms; the content present at boot is ignored (no replay); lines starting with `#` are ignored, so prefix a timestamp comment to re-run an identical command. Firmware ≥ 0.1.2. |
-| `STATUS.TXT` | device → host | Device descriptor written at boot: `neopulse=1 fw=0.1.2 board=... leds=4 touch=2 uid=...` |
+| `STATUS.TXT` | device → host | Device descriptor written at boot: `neopulse=1 fw=0.2.0 board=... leds=4 touch=2 uid=...` |
 | `boards/profile.py` | – | Hardware profile (pin, pixel count, touch pins). Edit to port. |
 
 A host must not expect to read `LEDS.LED` back: on CircuitPython the firmware cannot write the
@@ -23,29 +23,37 @@ filesystem while the host has it mounted. A parse error flashes all pixels red t
 
 ## Program language
 
-One step per line, ≤ 512 bytes and ≤ 24 lines. Compatible with SidePulse `LEDS.LED` programs.
+One step per line, ≤ 512 bytes and ≤ 24 lines. Compatible with SidePulse `LEDS.LED` programs
+(firmware ≥ 0.2.0): segments, per-segment delays, roll loops and repeat blocks behave the same.
 
 ```
 ; comment            // comment           # comment (a '#' not followed by hex)
-off                                        all pixels off, 330 ms linear fade
-#ff3a00 1.6s pulse                         fade off→color→off over 1.6 s (sine)
-#f00 #0f0 500ms                            colors tile across the strip: r g r g
-0:#ffffff 2:#0000ff 200ms none             indexed colors; unspecified pixels are off
-#00e5ff off off off 1ms none               a frame...
-roll-left 150ms                            ...then rotate it one pixel every 150 ms (chase)
-brightness 40                              program brightness 0-100 (multiplied by device brightness)
-repeat                                     loop forever;  `repeat 3` = three times then hold
+#ffffff                                    all pixels white, immediately (one frame)
+off 320ms cosine                           fade everything out over 320 ms
+#ff0000 #00ff00                            positional: pixel 0 red, 1 green, the rest OFF
+0:#ffffff 2:#0000ff 200ms                  indexed: only pixels 0 and 2 change, others HOLD
+0:#00e5ff 760ms pulse 0ms; 1:#00e5ff 760ms pulse 95ms   two segments on one line, staggered
+#f00 #f80 #ff0 #0f6                        a palette...
+roll 2s linear                             ...rotated one full loop (N positions) over 2 s
+brightness 128                             program brightness 0-255 (times device brightness)
+repeat                                     loop forever from the line after the previous repeat
+repeat 3                                   run that block 3 times, then continue with the next line
 ```
 
-Tokens on a color line, in any order:
+Tokens in a segment, in any order:
 
-- color: `#rgb`, `#rrggbb`, `off`, or `i:#color` (indexed; 0-based)
-- duration: `330ms`, `0.5s`, `2s` (default 330 ms)
-- easing: `linear` (default), `ease` / `ease-in-out` / `cosine`, `ease-in`, `ease-out`, `pulse` (go to the color and back), `none` (jump, then hold for the duration)
+- color: `#rgb`, `#rrggbb`, `off`, or `i:#color` (indexed, 0-based). One positional color means every pixel.
+- duration, then optionally delay: `330ms`, `0.5s`, `2s`, or a bare integer in ms. The first time
+  token is the duration, the second is the delay before the segment starts.
+- easing: `linear` (default), `ease` / `ease-in-out` / `cosine`, `ease-in`, `ease-out`,
+  `pulse` (go to the color and back to where it started), `none` (jump, then hold).
+- A segment with an easing or delay but no duration lasts 330 ms. With no timing at all it is immediate.
 
-Semantics: every step transitions from the frame on screen at its start to its colors over its
-duration. Without `repeat` the last frame holds. `roll` / `roll-left` / `roll-right` rotate the
-current frame one pixel over the duration.
+Semantics: every segment transitions its pixels from the frame on screen at the start of the
+line to its colors over its duration, after its delay. The line ends when the longest
+delay + duration ends. Pixels no segment mentions keep their color. `roll` / `roll-left` /
+`roll-right` rotate the frame by one full wraparound over the duration (`roll` = right). Without
+a `repeat` the last frame holds. A parse error flashes all pixels red three times.
 
 ## Serial data channel (115200 8N1, line based, `\n` terminated)
 

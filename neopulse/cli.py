@@ -6,7 +6,6 @@ import difflib
 import json
 import os
 import shutil
-import signal
 import sys
 import time
 from pathlib import Path
@@ -277,100 +276,21 @@ def cmd_monitor(args):
 
 def run_daemon(args):
     """Foreground loop: refresh on a timer (expiries) and react to touch events."""
-    pid = state_dir() / "daemon.pid"
-    pid.write_text(str(os.getpid()))
-    stop = False
+    from .daemon import Daemon
+    Daemon(log=lambda m: print(m, flush=True)).run_forever()
 
-    def _sig(*_):
-        nonlocal stop
-        stop = True
-    signal.signal(signal.SIGTERM, _sig)
-    signal.signal(signal.SIGINT, _sig)
-    print(f"neopulse monitor running (pid {os.getpid()})", flush=True)
-    ser = None
-    last = 0.0
-    last_info = 0.0
-    misses = 0
-    mode_cycle = ["lane", "unified", "off"]
+
+def cmd_menubar(args):
+    from . import menubar
+    menubar.main()
+
+
+def menubar_available() -> bool:
     try:
-        while not stop:
-            if ser is None:
-                port = find_serial()
-                if port:
-                    misses = 0
-                    try:
-                        from .transport.serial import SerialTransport
-                        ser = SerialTransport(port)
-                        ser.command("local 0")  # daemon owns the tap gestures
-                        print(f"serial {port} connected", flush=True)
-                        publish_info(ser)
-                        last_info = time.time()
-                    except TransportError:
-                        ser = None
-                else:
-                    misses += 1
-                    if misses == 5 and find_mount():  # drive present but firmware silent: restart it
-                        print("firmware not answering; soft reset", flush=True)
-                        print("restarted" if soft_reset() else "reset failed", flush=True)
-                        misses = 0
-            if time.time() - last > 2:
-                last = time.time()
-                try:
-                    monitor.refresh(transport=None)
-                except Exception as e:
-                    print(f"refresh error: {e}", flush=True)
-            if ser is not None and time.time() - last_info > 15:
-                last_info = time.time()
-                publish_info(ser)
-            if ser is None:
-                time.sleep(1)
-                continue
-            try:
-                for ev in ser.events(idle_timeout=1.0):
-                    print(time.strftime("%H:%M:%S"), ev, flush=True)
-                    if ev.startswith("evt bright ") or ev.startswith("evt mute "):
-                        publish_info(ser)
-                    if ev == "evt touch1 tap":
-                        monitor.ack()
-                        monitor.refresh(force=True)
-                    elif ev == "evt touch2 tap":
-                        cfg = monitor.load_config()
-                        cfg["mode"] = mode_cycle[(mode_cycle.index(cfg.get("mode", "lane")) + 1) % len(mode_cycle)]
-                        monitor.save_config(cfg)
-                        n = mode_cycle.index(cfg["mode"]) + 1
-                        ser.write(" ".join(f"{i}:#ffffff" for i in range(n)) + " 1ms none")  # 1/2/3 pixels = lane/unified/off
-                        time.sleep(0.8)
-                        monitor.refresh(force=True)
-                        print(f"mode -> {cfg['mode']}", flush=True)
-            except Exception as e:
-                print(f"serial lost: {e}", flush=True)
-                try:
-                    ser.close()
-                except Exception:
-                    pass
-                ser = None
-    finally:
-        if ser is not None:
-            try:
-                ser.command("local 1")
-                ser.close()
-            except Exception:
-                pass
-        pid.unlink(missing_ok=True)
-
-
-def publish_info(ser) -> None:
-    try:
-        i = ser.info()
-        if i:
-            d = dict(i.extra)
-            d["t"] = time.time()
-            for k in ("leds", "touch", "bright", "mute", "local", "mem"):
-                if k in d:
-                    d[k] = int(d[k])
-            (state_dir() / "device.json").write_text(json.dumps(d))
-    except Exception as e:
-        print(f"info error: {e}", flush=True)
+        import rumps  # noqa: F401
+        return sys.platform == "darwin"
+    except ImportError:
+        return False
 
 
 def _launch_agent_path() -> Path:
@@ -387,7 +307,8 @@ def install_service() -> str:
     if sys.platform == "darwin":
         p = _launch_agent_path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        args_xml = "".join(f"<string>{a}</string>" for a in exe.split() + ["monitor", "run"])
+        sub = ["menubar"] if menubar_available() else ["monitor", "run"]
+        args_xml = "".join(f"<string>{a}</string>" for a in exe.split() + sub)
         p.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -398,7 +319,8 @@ def install_service() -> str:
 </dict></plist>
 """)
         os.system(f"launchctl unload '{p}' >/dev/null 2>&1; launchctl load '{p}'")
-        return f"installed and started LaunchAgent {p} (log: {log})"
+        what = "menu-bar app" if sub == ["menubar"] else "headless monitor (pip install 'neopulse[mac]' for the menu-bar app)"
+        return f"installed and started LaunchAgent {p} running the {what} (log: {log})"
     if sys.platform.startswith("linux"):
         p = _systemd_path()
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -545,7 +467,8 @@ Drive it yourself
   neopulse off | identify | events | info
 
 Setup
-  neopulse setup                  flash check + hooks + background daemon
+  neopulse setup                  flash check + hooks + background daemon / menu-bar app
+  neopulse menubar                macOS menu-bar app (also runs the daemon)
   neopulse hooks install|status   Claude Code / Codex hooks
   neopulse flash                  put CircuitPython + firmware on a Neo Trinkey
   neopulse reset                  restart a stopped firmware (solid white pixels)
@@ -601,7 +524,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
     p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
     p = add("mode", "show or set the layout",
-            "lane: one pixel per agent session (default).  unified: all pixels show the most urgent state.\n"
+            "unified (default): all pixels show the most urgent state.  lane: one pixel per agent session.\n"
             "off: dark. Tapping pad 2 cycles these.", ["neopulse mode", "neopulse mode unified"])
     p.add_argument("mode", nargs="?", choices=["lane", "unified", "off"]); p.set_defaults(fn=cmd_mode)
     p = add("presence", "dim glow when nothing is happening", examples=["neopulse presence on"])
@@ -642,6 +565,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["install", "uninstall", "status"])
     p.add_argument("provider", nargs="?", choices=["claude", "codex", "all"], help="default: all")
     p.add_argument("--dry-run", action="store_true", help="print what would be written"); p.set_defaults(fn=cmd_hooks)
+    p = add("menubar", "macOS menu-bar app: sessions, layout, brightness, notifications (needs rumps)")
+    p.set_defaults(fn=cmd_menubar)
     p = add("monitor", "the background daemon (touch pads, timeouts, device recovery)",
             examples=["neopulse monitor run", "neopulse monitor install-service", "neopulse monitor refresh"])
     p.add_argument("action", choices=["run", "refresh", "install-service", "uninstall-service"]); p.set_defaults(fn=cmd_monitor)

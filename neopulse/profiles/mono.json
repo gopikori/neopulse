@@ -9,5 +9,12 @@
     "idle": "#000000"
   },
   "provider_tint": {},
-  "presence": "#020308"
+  "presence": "#020308",
+  "animations": {
+    "working": "roll",
+    "waiting": "attention",
+    "blocked": "blink",
+    "done": "complete",
+    "idle": "idle-pulse"
+  }
 }

@@ -8,4 +8,4 @@ Layers (each usable on its own):
   monitor    -- per-session agent tracking fed by editor/CLI hooks
   hooks      -- installers for Claude Code and Codex
 """
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -1,7 +1,7 @@
-# NeoPulse firmware -- CircuitPython. Drives NeoPixels from a tiny text program.
-# Inputs:  /LEDS.LED (host writes it)   usb_cdc.data serial ("write ...", "info", ...)
-# Outputs: pixels, "evt ..." lines on the data serial (touch, brightness, file status)
-# Spec: spec/PROTOCOL.md.  RAM is scarce (SAMD21): parse line by line, avoid big strings.
+# NeoPulse firmware -- CircuitPython. Drives NeoPixels from a tiny text program (LEDS.LED DSL,
+# compatible with SidePulse: segments separated by ';', per-segment delay, roll, repeat blocks).
+# Inputs:  /LEDS.LED and /CMD.TXT on the drive, usb_cdc.data serial.  Spec: spec/PROTOCOL.md.
+# RAM is scarce (SAMD21): parse line by line, avoid big strings, catch MemoryError and go on.
 import time
 import math
 import gc
@@ -12,20 +12,21 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.1.4"
+FW = "0.2.0"
 N = PIXELS
 N3 = N * 3
+ALL = (1 << N) - 1
 px = neopixel.NeoPixel(PIXEL_PIN, N, brightness=1.0, auto_write=False, pixel_order=PIXEL_ORDER)
 ser = usb_cdc.data
 
 # ---------------- persistent config (NVM: magic, brightness, local-actions) ----------------
 nvm = microcontroller.nvm
-BRIGHT = 60   # 0..100
+BRIGHT = 60   # 2..100 device brightness
 LOCAL = 1     # 1 = taps act on the device (ack/mute); 0 = taps only emit events
 MUTE = 0
 if nvm and nvm[0] == 0x5A:
     BRIGHT, LOCAL = nvm[1], nvm[2]
-    if BRIGHT > 100:
+    if BRIGHT > 100 or BRIGHT < 2:
         BRIGHT = 60
 
 
@@ -36,7 +37,7 @@ def save_cfg():
         pass
 
 
-# ---------------- program parser (line oriented) ----------------
+# ---------------- program parser ----------------
 EASE = {"linear": 0, "ease": 1, "ease-in-out": 1, "cosine": 1, "ease-in": 2,
         "ease-out": 3, "pulse": 4, "none": 5}
 HEX = "0123456789abcdef"
@@ -64,6 +65,8 @@ def dur(t):
             return int(float(t[:-2]))
         if t.endswith("s"):
             return int(float(t[:-1]) * 1000)
+        if t.isdigit():
+            return int(t)  # bare integer = milliseconds
     except ValueError:
         pass
     return None
@@ -71,45 +74,29 @@ def dur(t):
 
 class Prog:
     def __init__(self):
-        self.steps = []   # (colors|None, ms, ease_or_dir, kind)  kind 0 color, 1 roll
-        self.rep = None   # None hold, 0 forever, n times
-        self.bright = None
+        # step kinds: (0, segs, total_ms)  (1, dur, ease, dir)=roll  (2, count)=repeat marker
+        # seg: (mask, colors bytearray(N3), ms, ease, delay)
+        self.steps = []
+        self.bright = 255   # SidePulse scale 0..255, program-local
 
 
-def parse_line(p, ln):
-    """Add one program line to Prog p. Raises ValueError on bad input."""
-    ln = ln.strip()
-    if not ln or ln[0] == ";" or ln.startswith("//"):
-        return
-    if ln[0] == "#" and (len(ln) < 2 or ln[1].lower() not in HEX):
-        return  # "# comment"
-    toks = ln.lower().split()
-    w = toks[0]
-    if w == "repeat":
-        p.rep = int(toks[1]) if len(toks) > 1 else 0
-        return
-    if w == "brightness":
-        p.bright = max(0, min(100, int(toks[1])))
-        return
-    if len(p.steps) >= 24:
-        raise ValueError("too many steps")
-    if w == "roll" or w == "roll-right" or w == "roll-left":
-        d = 330
-        for t in toks[1:]:
-            m = dur(t)
-            if m is not None:
-                d = m
-        p.steps.append((None, d, -1 if w == "roll-left" else 1, 1))
-        return
+def parse_segment(text):
+    toks = text.split()
     cols = bytearray(N3)
-    ms, ease, pos, idx, has = 330, 0, 0, False, False
+    mask = 0
+    ms, ease, delay, pos = None, None, 0, 0
+    seen_time = False
     for t in toks:
         if t in EASE:
             ease = EASE[t]
             continue
         m = dur(t)
         if m is not None:
-            ms = m
+            if ms is None and not seen_time:
+                ms = m
+            else:
+                delay = m
+            seen_time = True
             continue
         if ":" in t:
             i, c = t.split(":", 1)
@@ -119,7 +106,7 @@ def parse_line(p, ln):
             i = int(i)
             if 0 <= i < N:
                 cols[i * 3:i * 3 + 3] = bytes(c)
-            idx = has = True
+                mask |= 1 << i
             continue
         c = color(t)
         if c is None:
@@ -127,14 +114,58 @@ def parse_line(p, ln):
         if pos < N:
             cols[pos * 3:pos * 3 + 3] = bytes(c)
         pos += 1
-        has = True
-    if not has:
+    if pos:                     # positional: given LEDs set, the rest turn off
+        mask = ALL
+        if pos == 1:            # a single color means all LEDs
+            for i in range(1, N):
+                cols[i * 3:i * 3 + 3] = cols[0:3]
+    if not mask:
+        raise ValueError(text)
+    if ms is None:
+        ms = 330 if (ease is not None or delay) else 16
+    if ease is None:
+        ease = 0
+    return (mask, cols, max(1, ms), ease, delay)
+
+
+def parse_line(p, ln):
+    """Add one program line to Prog p. Raises ValueError on bad input."""
+    ln = ln.strip()
+    if not ln or ln[0] == ";" or ln.startswith("//"):
+        return
+    if ln[0] == "#" and (len(ln) < 2 or ln[1].lower() not in HEX):
+        return  # "# comment"
+    low = ln.lower()
+    toks = low.split()
+    w = toks[0]
+    if w == "repeat":
+        p.steps.append((2, int(toks[1]) if len(toks) > 1 else 0))
+        return
+    if w == "brightness":
+        p.bright = max(0, min(255, int(toks[1])))
+        return
+    if len(p.steps) >= 24:
+        raise ValueError("too many steps")
+    if w == "roll" or w == "roll-right" or w == "roll-left":
+        d, e = 330, 0
+        for t in toks[1:]:
+            m = dur(t)
+            if m is not None:
+                d = m
+            elif t in EASE:
+                e = EASE[t]
+        p.steps.append((1, d, e, -1 if w == "roll-left" else 1))
+        return
+    segs = []
+    total = 1
+    for part in low.split(";"):
+        if part.strip():
+            s = parse_segment(part)
+            segs.append(s)
+            total = max(total, s[2] + s[4])
+    if not segs:
         raise ValueError(ln)
-    if not idx and pos < N:  # tile the given colors across the strip
-        for i in range(pos, N):
-            j = (i % pos) * 3
-            cols[i * 3:i * 3 + 3] = cols[j:j + 3]
-    p.steps.append((cols, max(1, ms), ease, 0))
+    p.steps.append((0, segs, total))
 
 
 def parse_lines(lines):
@@ -147,94 +178,142 @@ def parse_lines(lines):
 # ---------------- animation engine ----------------
 cur = bytearray(N3)    # frame being displayed (before brightness/gamma)
 base = bytearray(N3)   # frame at the start of the current step
-tgt = bytearray(N3)    # target of the current step (roll targets are precomputed here)
 prog = Prog()
 si = 0
-loops = 0
 t0 = 0
 done = True
+loops = -1             # remaining loops for the repeat marker being executed
 
 
 def now():
     return supervisor.ticks_ms()
 
 
-def begin_step():
-    """Prepare tgt for steps[si]."""
-    cols, ms, e, kind = prog.steps[si]
-    if kind == 1:
-        for i in range(N):
-            j = ((i + e) % N) * 3
-            tgt[i * 3:i * 3 + 3] = base[j:j + 3]
-    else:
-        tgt[:] = cols
-
-
 def load(p):
-    global prog, si, loops, t0, done
+    global prog, si, t0, done, loops
     prog = p
-    si = loops = 0
+    si = 0
+    loops = -1
     t0 = now()
-    done = not p.steps
     base[:] = cur
-    if not done:
-        begin_step()
+    done = not p.steps
+    skip_markers()
 
 
-def show():
-    b = BRIGHT * (prog.bright if prog.bright is not None else 100)  # 0..10000
-    if MUTE:
-        b = 0
-    for i in range(N):
-        r, g, bl = cur[i * 3], cur[i * 3 + 1], cur[i * 3 + 2]
-        # gamma ~2.0 then brightness; pack as int to avoid tuple allocations
-        px[i] = (((r * r * b) // 2550000) << 16) | (((g * g * b) // 2550000) << 8) | ((bl * bl * b) // 2550000)
-    px.show()
+def skip_markers():
+    """Execute repeat markers at si (jumping back or passing); leaves si on a real step or done."""
+    global si, done, loops
+    while not done:
+        if si >= len(prog.steps):
+            done = True
+            return
+        st = prog.steps[si]
+        if st[0] != 2:
+            return
+        count = st[1]
+        start = 0
+        for j in range(si - 1, -1, -1):   # block starts after the previous marker
+            if prog.steps[j][0] == 2:
+                start = j + 1
+                break
+        if count == 0:
+            si = start
+            if start == si and prog.steps[start][0] == 2:
+                done = True
+            continue
+        if loops < 0:
+            loops = count - 1
+        if loops > 0:
+            loops -= 1
+            si = start
+        else:
+            loops = -1
+            si += 1
 
 
-def lerp(g):  # cur = base + (tgt - base) * g, g in 0..1
+def ease_f(e, f):
+    if e == 5:
+        return 1.0
+    if e == 4:
+        return math.sin(math.pi * f)
+    if e == 2:
+        return f * f
+    if e == 3:
+        return 1 - (1 - f) * (1 - f)
+    if e == 1:
+        return (1 - math.cos(math.pi * f)) / 2
+    return f
+
+
+def blend_pixel(i, tgt, g):
     gi = int(g * 1024)
-    for k in range(N3):
+    for k in range(i * 3, i * 3 + 3):
         cur[k] = (base[k] * (1024 - gi) + tgt[k] * gi) >> 10
 
 
 def tick():
-    global si, loops, t0, done
+    global si, t0, done
     if done:
         return
-    cols, ms, e, kind = prog.steps[si]
+    st = prog.steps[si]
     el = (now() - t0) & 0x3FFFFFFF
-    if el >= ms:
-        if kind == 0 and e == 4:   # pulse returns to base
+    if st[0] == 1:                         # roll: one full wraparound over dur
+        d, e, direction = st[1], st[2], st[3]
+        if el >= d:
             cur[:] = base
-        else:
-            cur[:] = tgt
-        base[:] = cur
-        t0 = now()
-        si += 1
-        n = len(prog.steps)
-        if si >= n:
-            if prog.rep is None or (prog.rep and loops + 1 >= prog.rep):
-                si = n - 1
-                done = True
-                return
-            loops += 1
-            si = 0
-        begin_step()
+            finish_step()
+            return
+        shift = ease_f(e, el / d) * N      # 0..N positions
+        whole = int(shift)
+        frac = shift - whole
+        for i in range(N):
+            a = ((i + direction * whole) % N) * 3
+            b = ((i + direction * (whole + 1)) % N) * 3
+            gi = int(frac * 1024)
+            for k in range(3):
+                cur[i * 3 + k] = (base[a + k] * (1024 - gi) + base[b + k] * gi) >> 10
         return
-    f = el / ms
-    if kind == 1 or e == 0:
-        lerp(f)
-    elif e == 5:
-        cur[:] = tgt
-    elif e == 4:
-        lerp(math.sin(math.pi * f))
-    elif e == 2:
-        lerp(f * f)
-    elif e == 3:
-        lerp(1 - (1 - f) * (1 - f))
-    else:
-        lerp((1 - math.cos(math.pi * f)) / 2)
+    segs, total = st[1], st[2]
+    if el >= total:
+        for mask, cols, ms, e, delay in segs:
+            for i in range(N):
+                if mask >> i & 1:
+                    if e == 4:
+                        cur[i * 3:i * 3 + 3] = base[i * 3:i * 3 + 3]
+                    else:
+                        cur[i * 3:i * 3 + 3] = cols[i * 3:i * 3 + 3]
+        finish_step()
+        return
+    for mask, cols, ms, e, delay in segs:
+        le = el - delay
+        if le < 0:
+            continue
+        f = le / ms
+        if f >= 1:
+            g = 0.0 if e == 4 else 1.0
+        else:
+            g = ease_f(e, f)
+        for i in range(N):
+            if mask >> i & 1:
+                blend_pixel(i, cols, g)
+
+
+def finish_step():
+    global si, t0
+    base[:] = cur
+    t0 = now()
+    si += 1
+    skip_markers()
+
+
+def show():
+    b = BRIGHT * prog.bright * 100 // 255   # 0..10000
+    if MUTE:
+        b = 0
+    for i in range(N):
+        r, g, bl = cur[i * 3], cur[i * 3 + 1], cur[i * 3 + 2]
+        px[i] = (((r * r * b) // 2550000) << 16) | (((g * g * b) // 2550000) << 8) | ((bl * bl * b) // 2550000)
+    px.show()
 
 
 def flash(rgb, times, ms=120):
@@ -262,8 +341,8 @@ def set_off():
     cur[:] = bytes(N3)
 
 
-last_sum = -1   # checksum of the last applied LEDS.LED
-bad_sum = -1    # checksum of a file that failed once (report only if stable)
+last_sum = -1
+bad_sum = -1
 
 
 def file_sum(path):
@@ -305,10 +384,10 @@ def poll_file():
 
 
 last_cmd = -1
+quiet = 0   # 1 while running CMD.TXT lines: no ok/err/pong/info replies, only events
 
 
 def poll_cmd():
-    """Run each non-comment line of /CMD.TXT through handle() when the file changes."""
     global last_cmd, quiet
     s = file_sum("/CMD.TXT")
     if s is None or s == last_cmd:
@@ -330,10 +409,6 @@ def info():
     gc.collect()
     return "info neopulse=1 fw=%s leds=%d touch=%d bright=%d mute=%d local=%d mem=%d" % (
         FW, N, len(TOUCH_PINS), BRIGHT, MUTE, LOCAL, gc.mem_free())
-
-
-rx = bytearray()
-quiet = 0   # 1 while running CMD.TXT lines: no ok/err/pong/info replies, only events
 
 
 def reply(s):
@@ -389,6 +464,9 @@ def handle(line):
         reply("err unknown " + cmd)
 
 
+rx = bytearray()
+
+
 def poll_serial():
     global rx
     if not ser:
@@ -419,8 +497,8 @@ if TOUCH_PINS:
         except Exception:
             pass
 NT = len(touch)
-t_down = [0] * NT       # press timestamp or 0
-t_hold = [0] * NT       # 0 = no hold yet, else last repeat timestamp
+t_down = [0] * NT
+t_hold = [0] * NT
 both_fired = False
 
 
@@ -429,9 +507,9 @@ def on_tap(i):
     emit("evt touch%d tap" % (i + 1))
     if not LOCAL:
         return
-    if i == 0:          # ack: clear the light
+    if i == 0:
         set_off()
-    elif i == 1:        # mute toggle
+    elif i == 1:
         MUTE = 0 if MUTE else 1
         emit("evt mute %d" % MUTE)
 
@@ -440,7 +518,7 @@ def on_hold(i, first):
     global BRIGHT
     if first:
         emit("evt touch%d hold" % (i + 1))
-    BRIGHT = max(2, min(100, BRIGHT + (10 if i == 1 else -10)))  # always local
+    BRIGHT = max(2, min(100, BRIGHT + (10 if i == 1 else -10)))
     emit("evt bright %d" % BRIGHT)
 
 
@@ -466,7 +544,7 @@ def poll_touch():
     if NT >= 2 and t_down[0] and t_down[1] and not both_fired and \
             t - max(t_down[0], t_down[1]) > 1500:
         both_fired = True
-        t_hold[0] = t_hold[1] = t  # suppress taps on release
+        t_hold[0] = t_hold[1] = t
         emit("evt both hold")
         flash((120, 120, 120), 3)
         save_cfg()
@@ -480,8 +558,8 @@ try:
         load(parse_lines(f))
     emit("evt prog ok init")
 except Exception:
-    load(parse_lines(["#102030 1.2s pulse"]))  # hello blink
-last_cmd = file_sum("/CMD.TXT") or -1   # commands written before this boot are stale
+    load(parse_lines(["off", "#102030 1.2s pulse"]))  # hello blink
+last_cmd = file_sum("/CMD.TXT") or -1
 gc.collect()
 print("neopulse " + info())
 

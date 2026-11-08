@@ -22,7 +22,7 @@ WAITING_STALE = 4 * 3600
 TAIL_BYTES = 256 * 1024
 ROTATE_BYTES = 4 * 1024 * 1024
 
-DEFAULT_CONFIG = {"mode": "lane", "profile": "default", "presence": False,
+DEFAULT_CONFIG = {"mode": "unified", "profile": "default", "presence": False,
                   "transport": "auto", "device": None, "port": None, "max_lanes": None}
 
 
