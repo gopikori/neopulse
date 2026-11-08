@@ -40,7 +40,7 @@ mode without hardware in [docs/simulator.html](docs/simulator.html)
 
 ## Menu-bar app (macOS)
 
-![menu bar](docs/menubar.svg)
+![NeoPulse menu-bar app: icon showing the most urgent state, and the menu with the session list, acknowledge, mode, brightness, colors, pause, notifications and device info](docs/menubar.png)
 
 `pip install -e '.[mac]'` then `neopulse menubar` (or `neopulse setup`, which installs it as a
 login item when rumps is present). The icon is the most urgent state: 🔵 working, 🟡 needs you,
