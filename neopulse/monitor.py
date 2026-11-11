@@ -72,6 +72,8 @@ def state_for_event(provider: str, event: str, raw: dict) -> State | None | str:
     if event == "PermissionRequest":
         return State.WAITING
     if event == "Notification":
+        if raw.get("notification_type") == "idle_prompt":
+            return None   # Claude's reminder 60 s after it stopped: the Stop event already set done / needs you
         text = " ".join(str(raw.get(k, "")) for k in ("notification_type", "message", "title")).lower()
         if "complete" in text or "finished" in text:
             return State.DONE

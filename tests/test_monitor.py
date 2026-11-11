@@ -36,6 +36,17 @@ def test_claude_lifecycle():
     assert monitor.build_sessions(recs, now) == {}
 
 
+def test_idle_prompt_does_not_turn_done_into_needs_you():
+    now = time.time()
+    idle = dict(notification_type="idle_prompt", message="Claude is waiting for your input")
+    recs = [ev("claude", "UserPromptSubmit", t=now - 90), ev("claude", "Stop", t=now - 70),
+            ev("claude", "Notification", t=now - 10, **idle)]
+    assert monitor.build_sessions(recs, now)["claude:s1"].state == State.DONE
+    recs = [ev("claude", "Stop", t=now - 70, last_assistant_message="Which one?"),
+            ev("claude", "Notification", t=now - 10, **idle)]
+    assert monitor.build_sessions(recs, now)["claude:s1"].state == State.WAITING
+
+
 def test_ack_and_expiry():
     now = time.time()
     recs = [ev("codex", "Stop", t=now - 60)]
