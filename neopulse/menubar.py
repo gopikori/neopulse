@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from . import __version__, monitor
+
 from .daemon import MODE_CYCLE, Daemon
 from .states import State, list_profiles
 
@@ -16,6 +17,55 @@ ICON = {State.BLOCKED: "🔴", State.WAITING: "🟡", State.WORKING: "🔵", Sta
 LABEL = {State.BLOCKED: "blocked", State.WAITING: "needs you", State.WORKING: "working",
          State.DONE: "done", State.IDLE: "idle"}
 MODE_LABEL = {"unified": "One light (most urgent agent)", "lane": "One pixel per agent", "off": "Off (light stays dark)"}
+
+
+DOT = {State.BLOCKED: "ff3b30", State.WAITING: "ffcc00", State.WORKING: "0a84ff", State.DONE: "30d158",
+       State.IDLE: "8e8e93"}
+
+
+def _icon_file(state, connected: bool, off: bool) -> str:
+    """Status-bar icon: a disc in the state color with a tick (device reachable) or a cross (not)
+    drawn inside it. Mode off is a hollow ring. Rendered once per variant and cached as a PNG."""
+    name = f"{'off' if off else (state.value if state else 'idle')}-{'ok' if connected else 'no'}.png"
+    path = monitor.state_dir() / "icons-v1" / name
+    if path.exists():
+        return str(path)
+    from AppKit import (NSBezierPath, NSBitmapImageRep, NSColor, NSGraphicsContext, NSImage, NSMakePoint,
+                        NSMakeRect, NSMakeSize, NSPNGFileType, NSRoundLineCapStyle, NSRoundLineJoinStyle)
+    hexc = DOT.get(state, DOT[State.IDLE])
+    r, g, b = (int(hexc[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    k = 4                                     # 22 pt drawn at 4x for a sharp retina icon
+    img = NSImage.alloc().initWithSize_(NSMakeSize(22 * k, 22 * k))
+    img.lockFocus()
+    disc = NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(2 * k, 2 * k, 18 * k, 18 * k))
+    if off:
+        NSColor.colorWithSRGBRed_green_blue_alpha_(.56, .56, .58, 1).set()
+        disc.setLineWidth_(1.8 * k)
+        disc.stroke()
+        mark = NSColor.colorWithSRGBRed_green_blue_alpha_(.56, .56, .58, 1)
+    else:
+        NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1).set()
+        disc.fill()
+        dark = state == State.WAITING         # white is unreadable on yellow
+        mark = NSColor.colorWithSRGBRed_green_blue_alpha_(*((.1, .1, .1) if dark else (1, 1, 1)), 1)
+    mark.set()
+    m = NSBezierPath.bezierPath()
+    m.setLineWidth_(2.3 * k)
+    m.setLineCapStyle_(NSRoundLineCapStyle)
+    m.setLineJoinStyle_(NSRoundLineJoinStyle)
+    if connected:                             # tick
+        for i, (x, y) in enumerate(((6.6, 11.2), (9.8, 7.8), (15.6, 14.6))):
+            (m.moveToPoint_ if i == 0 else m.lineToPoint_)(NSMakePoint(x * k, y * k))
+    else:                                     # cross
+        for (x1, y1), (x2, y2) in (((7.6, 7.6), (14.4, 14.4)), ((7.6, 14.4), (14.4, 7.6))):
+            m.moveToPoint_(NSMakePoint(x1 * k, y1 * k))
+            m.lineToPoint_(NSMakePoint(x2 * k, y2 * k))
+    m.stroke()
+    rep_ = NSBitmapImageRep.alloc().initWithFocusedViewRect_(NSMakeRect(0, 0, 22 * k, 22 * k))
+    img.unlockFocus()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rep_.representationUsingType_properties_(NSPNGFileType, None).writeToFile_atomically_(str(path), True)
+    return str(path)
 
 
 def _open_terminal(cwd: str) -> None:
@@ -35,7 +85,8 @@ def main() -> None:
 
     class NeoPulseApp(rumps.App):
         def __init__(self):
-            super().__init__("NeoPulse", title="⚪", quit_button=None)
+            super().__init__("NeoPulse", title=None, quit_button=None)
+            self._icon_path = None
             self.daemon = Daemon(log=self._log)
             self.daemon.start()
             self.daemon.listeners.append(self._on_event)
@@ -43,20 +94,36 @@ def main() -> None:
             self._notified: set[str] = set()
             self._log_lines: list[str] = []
             self.sessions_items: list[rumps.MenuItem] = []
+            self._bright_want: int | None = None     # latest slider value, sent by a worker thread
+            self._bright_evt = threading.Event()
+            self._bright_touched = 0.0
             self._build_menu()
             self._tick()
             # device/serial work happens on a thread; the UI refreshes on a timer
             threading.Thread(target=self._loop, daemon=True).start()
+            threading.Thread(target=self._bright_loop, daemon=True).start()
             rumps.Timer(self._tick, 2).start()
 
         # ---------- background ----------
         def _loop(self):
             while True:
                 try:
-                    self.daemon.step(read_events_for=1.0)
+                    self.daemon.step(read_events_for=0.3)   # short, so UI commands get the port quickly
                 except Exception as e:
                     self._log(f"loop error: {e}")
                     time.sleep(1)
+
+        def _bright_loop(self):
+            """Send only the newest slider value; a drag produces many, serial I/O is slow."""
+            while True:
+                self._bright_evt.wait()
+                self._bright_evt.clear()
+                v, self._bright_want = self._bright_want, None
+                if v is not None:
+                    try:
+                        self.daemon.command(f"bright {v}")
+                    except Exception as e:
+                        self._log(f"bright error: {e}")
 
         def _log(self, s: str):
             self._log_lines.append(s)
@@ -82,12 +149,21 @@ def main() -> None:
                 it = rumps.MenuItem(MODE_LABEL[m], callback=lambda sender, m=m: self.on_mode(m))
                 self.mode_items[m] = it
                 self.mode_menu.add(it)
-            self.bright_menu = rumps.MenuItem("Brightness")
-            self.bright_menu.add(rumps.MenuItem("Brighter  (pad 2 hold)", callback=lambda _: self.on_bright("+10")))
-            self.bright_menu.add(rumps.MenuItem("Dimmer  (pad 1 hold)", callback=lambda _: self.on_bright("-10")))
-            self.bright_menu.add(rumps.separator)
-            for v in (10, 30, 60, 100):
-                self.bright_menu.add(rumps.MenuItem(f"{v}%", callback=lambda _, v=v: self.on_bright(str(v))))
+            # one custom-view item: a title in normal menu text (a callback-less MenuItem would be greyed
+            # out and read as disabled) with the slider under it
+            from AppKit import NSColor, NSFont, NSMakeRect, NSTextField, NSView
+            self.bright_slider = rumps.SliderMenuItem(value=60, min_value=1, max_value=100,
+                                                      callback=self.on_bright_slide, dimensions=(200, 20))
+            box = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 240, 46))
+            self.bright_text = NSTextField.labelWithString_("Brightness")
+            self.bright_text.setFont_(NSFont.menuFontOfSize_(0))
+            self.bright_text.setTextColor_(NSColor.labelColor())
+            self.bright_text.setFrame_(NSMakeRect(14, 25, 212, 18))
+            self.bright_slider._menuitem.setView_(None)   # detach first, or setView_(box) pulls the slider out of box
+            self.bright_slider._slider.setFrame_(NSMakeRect(14, 3, 212, 20))
+            box.addSubview_(self.bright_text)
+            box.addSubview_(self.bright_slider._slider)
+            self.bright_slider._menuitem.setView_(box)
             self.profile_menu = rumps.MenuItem("Colors")
             self.profile_items = {}
             for name in list_profiles():
@@ -100,8 +176,8 @@ def main() -> None:
             self.identify_item = rumps.MenuItem("Find my device (flash white)", callback=lambda _: self.daemon.command("identify"))
             self.device_item = rumps.MenuItem("device: looking...")
             self.device_item.set_callback(None)
-            self.menu = [self.header, rumps.separator, self.ack_item, self.mode_menu, self.bright_menu,
-                         self.profile_menu, self.mute_item, self.notify_item, rumps.separator,
+            self.menu = [self.header, rumps.separator, self.ack_item, self.mode_menu, self.profile_menu,
+                         rumps.separator, self.bright_slider, rumps.separator, self.mute_item, self.notify_item, rumps.separator,
                          self.identify_item, self.device_item, rumps.separator,
                          rumps.MenuItem(f"Quit NeoPulse {__version__}", callback=self.on_quit)]
 
@@ -112,16 +188,20 @@ def main() -> None:
                 self._log(f"menu error: {e}")
 
         def _refresh_menu(self):
+            from AppKit import NSColor
             info = self.daemon.device_info()
             leds = int(info.get("leds", 4))
             sessions = monitor.current_sessions(lanes=leds)
             cfg = monitor.load_config()
             agg = min((s.state for s in sessions.values()), key=lambda st: list(State).index(st), default=None)
             active = sum(1 for s in sessions.values() if s.state != State.IDLE)
-            if cfg.get("mode") == "off":
-                self.title = "⏾"                       # light deliberately dark
-            else:
-                self.title = (ICON[agg] if agg else "⚪") + (f" {active}" if active > 1 else "")
+            connected = self.daemon.connected()
+            off = cfg.get("mode") == "off"            # light deliberately dark
+            icon = _icon_file(agg, connected, off)     # tick inside the disc = device reachable, cross = not
+            if icon != self._icon_path:
+                self._icon_path = icon
+                self.icon = icon
+            self.title = f"{active}" if (active > 1 and not off) else None
             self.header.title = f"NeoPulse: {len(sessions)} session{'s' if len(sessions) != 1 else ''}" if sessions else "NeoPulse: no agent sessions"
             # session rows
             for it in self.sessions_items:
@@ -147,11 +227,17 @@ def main() -> None:
             for n, it in self.profile_items.items():
                 it.state = 1 if cfg.get("profile") == n else 0
             self.mute_item.state = 1 if int(info.get("mute", 0)) else 0
-            if info:
+            if connected and info:
                 age = int(now - info.get("t", now))
-                self.device_item.title = f"device: fw {info.get('fw', '?')}, {leds} pixels, brightness {info.get('bright', '?')}%  ({age}s ago)"
+                self.device_item.title = f"device: connected, fw {info.get('fw', '?')}, {leds} pixels  ({age}s ago)"
             else:
-                self.device_item.title = "device: not connected"
+                self.device_item.title = "device: not connected (check the USB plug)"
+            self.bright_slider._slider.setEnabled_(bool(connected))
+            if now - self._bright_touched > 3 and "bright" in info:   # follow pad holds / CLI changes
+                self.bright_slider.value = info["bright"]
+            self.bright_text.setStringValue_(f"Brightness: {int(round(self.bright_slider.value))}%" if connected
+                                             else "Brightness (device not connected)")
+            self.bright_text.setTextColor_(NSColor.labelColor() if connected else NSColor.disabledControlTextColor())
             # notifications for sessions that newly need you
             if self.notify_waiting:
                 for key, s in sessions.items():
@@ -173,9 +259,12 @@ def main() -> None:
             self.daemon.set_mode(mode, indicate=False)
             self._tick()
 
-        def on_bright(self, arg):
-            self.daemon.command(f"bright {arg}")
-            self._tick()
+        def on_bright_slide(self, sender):
+            v = max(1, min(100, int(round(sender.value))))
+            self._bright_touched = time.time()
+            self.bright_text.setStringValue_(f"Brightness: {v}%")
+            self._bright_want = v
+            self._bright_evt.set()
 
         def on_profile(self, name):
             cfg = monitor.load_config()

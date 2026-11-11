@@ -12,7 +12,7 @@ import usb_cdc
 from boards.profile import PIXEL_PIN, PIXELS, PIXEL_ORDER, TOUCH_PINS
 
 supervisor.runtime.autoreload = False  # host writes LEDS.LED; must not restart us
-FW = "0.2.2"
+FW = "0.2.3"
 N = PIXELS
 N3 = N * 3
 ALL = (1 << N) - 1
@@ -23,12 +23,12 @@ if ser:
 
 # ---------------- persistent config (NVM: magic, brightness, local-actions) ----------------
 nvm = microcontroller.nvm
-BRIGHT = 60   # 2..100 device brightness
+BRIGHT = 60   # 1..100 device brightness
 LOCAL = 1     # 1 = taps act on the device (ack/mute); 0 = taps only emit events
 MUTE = 0
 if nvm and nvm[0] == 0x5A:
     BRIGHT, LOCAL = nvm[1], nvm[2]
-    if BRIGHT > 100 or BRIGHT < 2:
+    if BRIGHT > 100 or BRIGHT < 1:
         BRIGHT = 60
 
 
@@ -476,7 +476,7 @@ def handle(line):
         try:
             a = arg.strip()
             v = BRIGHT + int(a) if a[:1] in "+-" else int(a)
-            BRIGHT = max(2, min(100, v))
+            BRIGHT = max(1, min(100, v))
             save_cfg()
             bright_feedback(250)
             emit("evt bright %d" % BRIGHT)
@@ -550,7 +550,7 @@ def on_hold(i, first):
     global BRIGHT
     if first:
         emit("evt touch%d hold" % (i + 1))
-    BRIGHT = max(2, min(100, BRIGHT + (10 if i == 1 else -10)))
+    BRIGHT = max(1, min(100, BRIGHT + (10 if i == 1 else -10)))
     bright_feedback(300)
     emit("evt bright %d" % BRIGHT)
 

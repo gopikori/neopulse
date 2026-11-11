@@ -85,6 +85,10 @@ class Daemon:
         except Exception as e:
             self.log(f"info error: {e}")
 
+    def connected(self) -> bool:
+        """True when the device is reachable: serial port open, or at least its drive mounted."""
+        return self.ser is not None or find_mount() is not None
+
     def device_info(self) -> dict:
         try:
             return json.loads((state_dir() / "device.json").read_text())

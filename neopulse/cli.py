@@ -80,26 +80,26 @@ def cmd_bright(args):
     if not level:
         info = last_device_info()
         if "bright" in info:
-            print(f"brightness {info['bright']} (2-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
+            print(f"brightness {info['bright']} (1-100, as reported {int(time.time() - info.get('t', 0))}s ago)")
         elif monitor.daemon_running():
             print("brightness unknown yet (daemon just started; retry in a few seconds)")
         else:
             try:
                 with open_transport("serial", None, args.port) as tr:
                     i = tr.info()
-                    print(f"brightness {i.extra.get('bright', '?')} (2-100)")
+                    print(f"brightness {i.extra.get('bright', '?')} (1-100)")
             except TransportError:
                 print("brightness unknown (no daemon running and the serial port did not answer)")
-        print("set with: neopulse bright 2-100 | up | down | +10 | -10   (or hold pad 1 / pad 2)")
+        print("set with: neopulse bright 1-100 | up | down | +10 | -10   (or hold pad 1 / pad 2)")
         return
     if level == "up":
         arg = "+10"
     elif level == "down":
         arg = "-10"
     elif level.lstrip("+-").isdigit():
-        arg = level if level[0] in "+-" else str(max(2, min(100, int(level))))
+        arg = level if level[0] in "+-" else str(max(1, min(100, int(level))))
     else:
-        die(f"bad level {args.level!r}: use 0-100, up, down, +N or -N")
+        die(f"bad level {args.level!r}: use 1-100, up, down, +N or -N")
     with transport_from(args) as tr:
         reply = tr.command(f"bright {arg}")
         print(f"brightness {arg} -> {reply}" if tr.name == "file" else reply)
@@ -514,10 +514,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("status", "device, hooks, daemon and live sessions"); p.add_argument("--no-serial", action="store_true", help="skip the serial probe")
     p.set_defaults(fn=cmd_status)
     p = add("bright", "show or set brightness",
-            "Brightness is stored on the device (2-100; use mute or mode off for dark). Without an argument, shows the current level.\n"
+            "Brightness is stored on the device (1-100; use mute or mode off for dark). Without an argument, shows the current level.\n"
             "Holding touch pad 1 lowers it and pad 2 raises it.",
             ["neopulse bright", "neopulse bright 60", "neopulse bright up", "neopulse bright -20"])
-    p.add_argument("level", nargs="?", metavar="2-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
+    p.add_argument("level", nargs="?", metavar="1-100|up|down|+N|-N"); dev_opts(p); p.set_defaults(fn=cmd_bright)
     p = add("ack", "clear done/waiting lights (same as tapping pad 1)"); p.set_defaults(fn=cmd_ack)
     p = add("clear", "forget every session and turn the light off"); p.set_defaults(fn=cmd_clear)
     p = add("mode", "show or set the mode",
