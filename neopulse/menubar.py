@@ -151,16 +151,18 @@ def main() -> None:
                 self.mode_menu.add(it)
             # one custom-view item: a title in normal menu text (a callback-less MenuItem would be greyed
             # out and read as disabled) with the slider under it
-            from AppKit import NSColor, NSFont, NSMakeRect, NSTextField, NSView
+            from AppKit import NSColor, NSFont, NSMakeRect, NSTextField, NSView, NSViewWidthSizable
             self.bright_slider = rumps.SliderMenuItem(value=60, min_value=1, max_value=100,
                                                       callback=self.on_bright_slide, dimensions=(200, 20))
             box = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 240, 46))
             self.bright_text = NSTextField.labelWithString_("Brightness")
             self.bright_text.setFont_(NSFont.menuFontOfSize_(0))
             self.bright_text.setTextColor_(NSColor.labelColor())
-            self.bright_text.setFrame_(NSMakeRect(14, 25, 212, 18))
+            self.bright_text.setFrame_(NSMakeRect(28, 25, 192, 18))   # x matches the menu's text column
             self.bright_slider._menuitem.setView_(None)   # detach first, or setView_(box) pulls the slider out of box
-            self.bright_slider._slider.setFrame_(NSMakeRect(14, 3, 212, 20))
+            self.bright_slider._slider.setFrame_(NSMakeRect(28, 3, 192, 20))
+            for v in (box, self.bright_text, self.bright_slider._slider):
+                v.setAutoresizingMask_(NSViewWidthSizable)   # stretch to the menu's width
             box.addSubview_(self.bright_text)
             box.addSubview_(self.bright_slider._slider)
             self.bright_slider._menuitem.setView_(box)

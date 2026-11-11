@@ -55,14 +55,15 @@ mode without hardware in [docs/simulator.html](docs/simulator.html)
 
 ## Menu-bar app (macOS)
 
-![NeoPulse menu-bar app: icon showing the most urgent state, and the menu with the session list, acknowledge, mode, brightness, colors, pause, notifications and device info](docs/menubar.png)
+![NeoPulse menu-bar app: icon showing the most urgent state, and the menu with the session list, acknowledge, mode, colors, a brightness slider, pause, notifications and device info](docs/menubar.png)
 
 `pip install -e '.[mac]'` then `neopulse menubar` (or `neopulse setup`, which installs it as a
-login item when rumps is present). The icon is the most urgent state: 🔵 working, 🟡 needs you,
-🔴 blocked, 🟢 done, with a count when more than one agent is active. The menu lists every
-session with its state, provider and folder (open it in Terminal or Finder), and offers
-acknowledge, mode, brightness, color profile, pause, and a native notification whenever an
-agent starts needing you. The menu-bar app is the daemon: it owns the serial port, so run either
+login item when rumps is present). The icon is a disc in the color of the most urgent state
+(blue working, yellow needs you, red blocked, green done), with a count when more than one agent
+is active. A tick inside the disc means the device is connected; a cross means it is not. The
+menu lists every session with its state, provider and folder (open it in Terminal or Finder),
+and offers acknowledge, mode, color profile, a brightness slider (1 to 100), pause, and a native
+notification whenever an agent starts needing you. The menu-bar app is the daemon: it owns the serial port, so run either
 it or `neopulse monitor run`, not both.
 
 ### Pixels and pads
