@@ -52,6 +52,23 @@ def mount_candidates() -> list[Path]:
     return out
 
 
+def eject(mount: Path | None = None) -> tuple[bool, str]:
+    """Unmount the device drive so the board can be unplugged without the OS warning."""
+    import subprocess
+    import sys
+    m = mount or find_mount()
+    if m is None:
+        return True, "drive is not mounted; safe to unplug"
+    cmd = ["diskutil", "eject", str(m)] if sys.platform == "darwin" else ["umount", str(m)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"eject failed: {e}"
+    if r.returncode != 0:
+        return False, f"eject failed: {(r.stderr or r.stdout).strip()}"
+    return True, "ejected; safe to unplug"
+
+
 def find_mount(explicit: str | None = None) -> Path | None:
     """Return the NeoPulse drive (has STATUS.TXT with neopulse=1) or a bare CIRCUITPY."""
     if explicit:

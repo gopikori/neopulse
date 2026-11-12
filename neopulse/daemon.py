@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import monitor
-from .device import find_mount, find_serial, soft_reset
+from .device import eject, find_mount, find_serial, soft_reset
 from .paths import state_dir
 from .transport import TransportError
 
@@ -125,6 +125,12 @@ class Daemon:
     def cycle_mode(self) -> str:
         cfg = monitor.load_config()
         return self.set_mode(MODE_CYCLE[(MODE_CYCLE.index(cfg.get("mode", "unified")) + 1) % len(MODE_CYCLE)])
+
+    def eject(self) -> tuple[bool, str]:
+        """Unmount the drive. Holds the monitor lock so no program write is in flight."""
+        ok, msg = monitor._locked(eject)
+        self.log(f"eject: {msg}")
+        return ok, msg
 
     def command(self, line: str) -> str | None:
         """Send a device command (bright, mute, identify) over serial, or via the drive."""

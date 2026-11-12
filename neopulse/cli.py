@@ -120,6 +120,15 @@ def cmd_reset(args):
     print("firmware restarted" if soft_reset() else "could not restart; unplug and replug the board")
 
 
+def cmd_eject(args):
+    """Unmount the drive so the board can be unplugged without the OS warning."""
+    from .device import eject
+    ok, msg = monitor._locked(eject)
+    print(msg)
+    if not ok:
+        sys.exit(1)
+
+
 def cmd_events(args):
     try:
         tr = open_transport("serial", None, args.port)
@@ -469,6 +478,7 @@ Setup
   neopulse hooks install|status   Claude Code / Codex hooks
   neopulse flash                  put CircuitPython + firmware on a Neo Trinkey
   neopulse reset                  restart a stopped firmware (solid white pixels)
+  neopulse eject                  unmount the drive before you unplug the board
 
 neopulse help <command> for details, e.g. neopulse help bright
 """
@@ -568,6 +578,7 @@ def build_parser() -> argparse.ArgumentParser:
             examples=["neopulse monitor run", "neopulse monitor install-service", "neopulse monitor refresh"])
     p.add_argument("action", choices=["run", "refresh", "install-service", "uninstall-service"]); p.set_defaults(fn=cmd_monitor)
     p = add("reset", "restart the firmware if it stopped (all pixels solid white)"); p.set_defaults(fn=cmd_reset)
+    p = add("eject", "unmount the drive so the board can be unplugged without a warning"); p.set_defaults(fn=cmd_eject)
     p = add("flash", "install CircuitPython + NeoPulse firmware on a Neo Trinkey",
             "Reboots the board into its UF2 bootloader (or asks you to double-tap reset), copies CircuitPython, then the firmware.")
     p.add_argument("--uf2", metavar="FILE", help="use this .uf2 instead of downloading"); p.set_defaults(fn=cmd_flash)

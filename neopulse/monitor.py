@@ -303,6 +303,9 @@ def refresh(transport=None, force: bool = False, cfg: dict | None = None) -> str
         tr = transport
         try:
             if own:
+                from .device import find_mount
+                if find_mount(cfg.get("device")) is None and daemon_running():
+                    return None   # drive ejected: the daemon holds the serial port, and the light keeps its last program
                 tr = open_transport(cfg.get("transport", "auto"), cfg.get("device"), cfg.get("port"))
             info = tr.info()
             leds = info.leds if info else 4

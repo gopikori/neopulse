@@ -63,7 +63,8 @@ login item when rumps is present). The icon is a disc in the color of the most u
 is active. A tick inside the disc means the device is connected; a cross means it is not. The
 menu lists every session with its state, provider and folder (open it in Terminal or Finder),
 and offers acknowledge, mode, color profile, a brightness slider (1 to 100), pause, and a native
-notification whenever an agent starts needing you. The menu-bar app is the daemon: it owns the serial port, so run either
+notification whenever an agent starts needing you. Use Eject device before you unplug the
+board, so macOS does not warn about an unsafe removal. The menu-bar app is the daemon: it owns the serial port, so run either
 it or `neopulse monitor run`, not both.
 
 ### Pixels and pads
@@ -134,6 +135,7 @@ Drive it yourself
   neopulse state waiting --session ci     feed a state from scripts, CI, cron
   neopulse write '#30d158 400ms ease'     raw LED program (see spec/PROTOCOL.md)
   neopulse off | identify | events | info
+  neopulse eject                  unmount the drive before you unplug the board
   neopulse profile use ember              color profiles; add JSON to ~/.config/neopulse/profiles
 ```
 

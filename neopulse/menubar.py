@@ -11,6 +11,7 @@ from pathlib import Path
 from . import __version__, monitor
 
 from .daemon import MODE_CYCLE, Daemon
+from .device import find_mount
 from .states import State, list_profiles
 
 ICON = {State.BLOCKED: "🔴", State.WAITING: "🟡", State.WORKING: "🔵", State.DONE: "🟢", State.IDLE: "⚪"}
@@ -97,6 +98,7 @@ def main() -> None:
             self._bright_want: int | None = None     # latest slider value, sent by a worker thread
             self._bright_evt = threading.Event()
             self._bright_touched = 0.0
+            self._eject_msg, self._eject_t = "", 0.0
             self._build_menu()
             self._tick()
             # device/serial work happens on a thread; the UI refreshes on a timer
@@ -176,11 +178,12 @@ def main() -> None:
             self.notify_item = rumps.MenuItem("Notify when an agent needs me", callback=self.on_notify)
             self.notify_item.state = 1 if self.notify_waiting else 0
             self.identify_item = rumps.MenuItem("Find my device (flash white)", callback=lambda _: self.daemon.command("identify"))
+            self.eject_item = rumps.MenuItem("Eject device (safe to unplug)", callback=self.on_eject)
             self.device_item = rumps.MenuItem("device: looking...")
             self.device_item.set_callback(None)
             self.menu = [self.header, rumps.separator, self.ack_item, self.mode_menu, self.profile_menu,
                          rumps.separator, self.bright_slider, rumps.separator, self.mute_item, self.notify_item, rumps.separator,
-                         self.identify_item, self.device_item, rumps.separator,
+                         self.identify_item, self.eject_item, self.device_item, rumps.separator,
                          rumps.MenuItem(f"Quit NeoPulse {__version__}", callback=self.on_quit)]
 
         def _tick(self, _timer=None):
@@ -229,7 +232,11 @@ def main() -> None:
             for n, it in self.profile_items.items():
                 it.state = 1 if cfg.get("profile") == n else 0
             self.mute_item.state = 1 if int(info.get("mute", 0)) else 0
-            if connected and info:
+            if self._eject_msg and now - self._eject_t < 10:
+                self.device_item.title = f"device: {self._eject_msg}"
+            elif connected and find_mount() is None:
+                self.device_item.title = "device: drive ejected, safe to unplug (light is frozen until you replug)"
+            elif connected and info:
                 age = int(now - info.get("t", now))
                 self.device_item.title = f"device: connected, fw {info.get('fw', '?')}, {leds} pixels  ({age}s ago)"
             else:
@@ -267,6 +274,11 @@ def main() -> None:
             self.bright_text.setStringValue_(f"Brightness: {v}%")
             self._bright_want = v
             self._bright_evt.set()
+
+        def on_eject(self, _):
+            ok, msg = self.daemon.eject()
+            self._eject_msg, self._eject_t = msg, time.time()
+            self._tick()
 
         def on_profile(self, name):
             cfg = monitor.load_config()
